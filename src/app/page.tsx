@@ -137,29 +137,45 @@ export default function DashboardPage() {
   const [usingDemo, setUsingDemo] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  const [dataError, setDataError] = useState<string | null>(null);
+
   const loadData = useCallback(async () => {
     setLoading(true);
+    setDataError(null);
     try {
-      const hasSupabase =
-        process.env.NEXT_PUBLIC_SUPABASE_URL &&
-        process.env.NEXT_PUBLIC_SUPABASE_URL !== "";
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+      const hasSupabase = Boolean(supabaseUrl);
+
+      console.log("[Fleet] NEXT_PUBLIC_SUPABASE_URL present:", hasSupabase, "value starts with:", supabaseUrl.slice(0, 30));
 
       if (hasSupabase) {
         const { data, error } = await supabase.from("vehicles").select("*").order("plate");
-        if (error || !data || data.length === 0) {
+        console.log("[Fleet] Supabase vehicles response:", { error, count: data?.length, firstPlate: data?.[0]?.plate });
+
+        if (error) {
+          setDataError(`Supabase error: ${error.message} (code: ${error.code || "n/a"})`);
+          setVehicles(DEMO_VEHICLES);
+          setUsingDemo(true);
+        } else if (!data || data.length === 0) {
+          setDataError("Supabase connected but returned 0 vehicles. Check RLS policies or that seed data exists.");
           setVehicles(DEMO_VEHICLES);
           setUsingDemo(true);
         } else {
           setVehicles(data as Vehicle[]);
           setUsingDemo(false);
+          setDataError(null);
         }
+
         const { data: reserve } = await supabase.from("fuel_reserve").select("current_liters").limit(1).single();
         if (reserve) setFuelReserve(Number(reserve.current_liters));
       } else {
+        setDataError("NEXT_PUBLIC_SUPABASE_URL is missing in this deployment. Add it in Vercel → Settings → Environment Variables and redeploy.");
         setVehicles(DEMO_VEHICLES);
         setUsingDemo(true);
       }
-    } catch {
+    } catch (err: any) {
+      console.error("[Fleet] loadData exception:", err);
+      setDataError(`Exception: ${err?.message || String(err)}`);
       setVehicles(DEMO_VEHICLES);
       setUsingDemo(true);
     } finally {
@@ -232,6 +248,16 @@ export default function DashboardPage() {
           </div>
         </div>
       </header>
+
+      {dataError && (
+        <div className="max-w-7xl mx-auto px-4 pt-4">
+          <div className="bg-red-950/80 border border-red-700 text-red-200 text-sm rounded-lg p-4">
+            <strong className="block mb-1">Database connection issue</strong>
+            {dataError}
+            <p className="mt-2 text-xs text-red-300/80">Open browser console (F12) for more details. Fix the issue then click the refresh button.</p>
+          </div>
+        </div>
+      )}
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-8">
         {/* KPI strip */}
