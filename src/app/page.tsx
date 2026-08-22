@@ -404,6 +404,7 @@ export default function DashboardPage() {
                     riskScore={r.total_risk}
                     onSelect={setSelected}
                     highlighted={selected?.id === v.id}
+                    lightMode={lightMode}
                   />
                 </div>
               );
@@ -431,26 +432,33 @@ export default function DashboardPage() {
 
         {/* Downtime & Reschedule helper */}
         {downVehicles.length > 0 && (
-          <section className="bg-slate-900 border border-red-900/50 rounded-xl p-5 text-slate-100">
-            <h2 className="text-lg font-semibold mb-3 flex items-center gap-2 text-red-300">
+          <section className={`${lightMode ? "bg-red-50 border-red-200 text-slate-900" : "bg-slate-900 border-red-900/50 text-slate-100"} border rounded-xl p-5`}>
+            <h2 className={`text-lg font-semibold mb-3 flex items-center gap-2 ${lightMode ? "text-red-700" : "text-red-300"}`}>
               <CalendarClock className="w-5 h-5" />
               Vehicles Offline – Schedule Shuffle Needed
             </h2>
             <div className="space-y-3">
               {downVehicles.map((v) => (
-                <div key={v.id} className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-800/60 rounded-lg">
+                <div
+                  key={v.id}
+                  className={`flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg ${
+                    lightMode ? "bg-white border border-red-100" : "bg-slate-800/60"
+                  }`}
+                >
                   <div>
                     <p className="font-medium">
                       {v.plate} ({v.vehicle_id}) – {v.status}
                     </p>
-                    <p className="text-sm text-slate-400">{v.notes || "No notes"}</p>
-                    <p className="text-xs text-red-300">
+                    <p className={`text-sm ${lightMode ? "text-slate-600" : "text-slate-400"}`}>
+                      {v.notes || "No notes"}
+                    </p>
+                    <p className={`text-xs ${lightMode ? "text-red-600" : "text-red-300"}`}>
                       Income exposure: ~R{Number(v.estimated_daily_income).toLocaleString()}/day
                     </p>
                   </div>
-                  <div className="text-sm text-slate-300">
+                  <div className={`text-sm ${lightMode ? "text-slate-700" : "text-slate-300"}`}>
                     <p>Suggested: Reassign jobs to highest-availability active vehicles with similar capacity.</p>
-                    <p className="text-xs text-slate-500 mt-1">
+                    <p className={`text-xs mt-1 ${lightMode ? "text-slate-500" : "text-slate-500"}`}>
                       Active candidates:{" "}
                       {vehicles
                         .filter((x) => x.status === "active" && x.id !== v.id)
