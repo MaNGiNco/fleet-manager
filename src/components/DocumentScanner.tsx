@@ -62,7 +62,7 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
       <div className="flex flex-wrap gap-3">
         <button
           onClick={() => fileRef.current?.click()}
-          className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm font-medium transition"
+          className="flex items-center justify-center gap-2 min-h-[48px] px-5 py-3 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm font-medium transition w-full sm:w-auto"
         >
           <Upload className="w-4 h-4" />
           Upload / Capture Photo
@@ -91,9 +91,23 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
       )}
 
       {error && (
-        <div className="flex items-center gap-2 text-red-400 text-sm">
-          <AlertCircle className="w-4 h-4" />
-          {error}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-red-400 text-sm">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setResult(null);
+              setPreview(null);
+              fileRef.current?.click();
+            }}
+            className="min-h-[44px] px-4 rounded-lg bg-red-600/20 border border-red-600/50 text-red-300 text-sm font-medium"
+          >
+            Retry scan
+          </button>
         </div>
       )}
 

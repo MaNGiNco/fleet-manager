@@ -25,3 +25,73 @@ body {
   background: #475569;
   border-radius: 4px;
 }
+
+/* Bottom sheet animations */
+@keyframes sheet-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-slide-up {
+  from {
+    opacity: 0.85;
+    transform: translate3d(0, 100%, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes sheet-backdrop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-slide-down {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0.85;
+    transform: translate3d(0, 100%, 0);
+  }
+}
+
+.sheet-backdrop {
+  animation: sheet-backdrop-in 220ms ease-out both;
+  will-change: opacity;
+}
+
+.sheet-panel {
+  animation: sheet-slide-up 320ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  will-change: transform, opacity;
+  touch-action: pan-y;
+}
+
+.sheet-backdrop.sheet-closing {
+  animation: sheet-backdrop-out 200ms ease-in both;
+}
+
+.sheet-panel.sheet-closing {
+  animation: sheet-slide-down 240ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .sheet-backdrop,
+  .sheet-panel,
+  .sheet-backdrop.sheet-closing,
+  .sheet-panel.sheet-closing {
+    animation-duration: 1ms !important;
+  }
+}
