@@ -50,8 +50,8 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-4">
-      <h3 className="text-lg font-semibold flex items-center gap-2">
+    <div className="bg-slate-900 text-slate-100 border border-slate-700 rounded-xl p-5 space-y-4">
+      <h3 className="text-lg font-semibold flex items-center gap-2 text-slate-100">
         <Camera className="w-5 h-5 text-cyan-400" />
         Document Scanner (COIDA / Roadworthy)
       </h3>

@@ -29,7 +29,7 @@ export default function VehicleCard({ vehicle, riskScore, onSelect, highlighted 
   return (
     <div
       onClick={() => onSelect?.(vehicle)}
-      className={`bg-slate-900 border rounded-xl p-4 cursor-pointer transition hover:border-cyan-600 ${
+      className={`bg-slate-900 text-slate-100 border rounded-xl p-4 cursor-pointer transition hover:border-cyan-600 ${
         highlighted ? "border-cyan-400 ring-2 ring-cyan-400/40" : "border-slate-700"
       }`}
     >

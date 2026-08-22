@@ -349,15 +349,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Sticky mini-summary */}
-        <div className={`${theme.summary} px-4 py-2`}>
-          <div className="max-w-7xl mx-auto flex flex-wrap gap-x-4 gap-y-1 text-xs font-medium">
-            <span>{vehicles.length} vehicles</span>
-            <span className="text-red-500">{downVehicles.length} down</span>
-            <span className="text-amber-500">{certAlerts.length} certs ≤20d</span>
-            <span className="text-cyan-600">{fuelReserve.toLocaleString()} L fuel</span>
-          </div>
-        </div>
       </header>
 
       {dataError && (
@@ -397,8 +388,8 @@ export default function DashboardPage() {
         </section>
 
         {/* Risk Ranking */}
-        <section id="risk" className="scroll-mt-28">
-          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+        <section id="risk" className="scroll-mt-28 text-slate-100">
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2 text-slate-100">
             <AlertTriangle className="w-5 h-5 text-amber-400" />
             Risk Ranking (Service + Certificates + Income Exposure)
           </h2>
@@ -440,7 +431,7 @@ export default function DashboardPage() {
 
         {/* Downtime & Reschedule helper */}
         {downVehicles.length > 0 && (
-          <section className="bg-slate-900 border border-red-900/50 rounded-xl p-5">
+          <section className="bg-slate-900 border border-red-900/50 rounded-xl p-5 text-slate-100">
             <h2 className="text-lg font-semibold mb-3 flex items-center gap-2 text-red-300">
               <CalendarClock className="w-5 h-5" />
               Vehicles Offline – Schedule Shuffle Needed
@@ -778,7 +769,7 @@ export default function DashboardPage() {
         </section>
 
         {/* Document Scanner */}
-        <section id="scan" className="scroll-mt-28">
+        <section id="scan" className="scroll-mt-28 text-slate-100">
         <DocumentScanner
           onMatch={(v) => {
             setSelected(v);
@@ -789,9 +780,9 @@ export default function DashboardPage() {
         </section>
 
         {/* AI Analytics */}
-        <section className="bg-slate-900 border border-slate-700 rounded-xl p-5">
+        <section className="bg-slate-900 border border-slate-700 rounded-xl p-5 text-slate-100">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
+            <h2 className="text-lg font-semibold flex items-center gap-2 text-slate-100">
               <Brain className="w-5 h-5 text-violet-400" />
               AI Analytics & Recommendations
             </h2>
