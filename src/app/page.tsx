@@ -164,12 +164,23 @@ export default function DashboardPage() {
   };
 
   const scrollToSection = (id: string) => {
-    setActiveSection(id);
     const el = document.getElementById(id);
-    if (el) {
-      const y = el.getBoundingClientRect().top + window.scrollY - 120;
-      window.scrollTo({ top: y, behavior: "smooth" });
-    }
+    if (!el) return;
+
+    setActiveSection(id);
+
+    // Smooth scroll with header offset — rAF avoids layout jump on mobile
+    requestAnimationFrame(() => {
+      const headerOffset = 100; // sticky header clearance
+      const rect = el.getBoundingClientRect();
+      const targetY = Math.max(0, window.scrollY + rect.top - headerOffset);
+
+      window.scrollTo({
+        top: targetY,
+        left: 0,
+        behavior: "smooth",
+      });
+    });
   };
 
   const loadData = useCallback(async () => {
@@ -387,7 +398,7 @@ export default function DashboardPage() {
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-8">
         {/* KPI strip */}
-        <section id="overview" className="grid grid-cols-2 md:grid-cols-4 gap-4 scroll-mt-28">
+        <section id="overview" className="grid grid-cols-2 md:grid-cols-4 gap-4 scroll-mt-32">
           <div className={`${theme.card} rounded-xl p-4`}>
             <p className={`text-xs ${theme.cardMuted} uppercase`}>Total Vehicles</p>
             <p className="text-2xl font-bold">{vehicles.length}</p>
@@ -407,7 +418,7 @@ export default function DashboardPage() {
         </section>
 
         {/* Company COIDA (business-level, not per vehicle) */}
-        <section id="coida" className="scroll-mt-28">
+        <section id="coida" className="scroll-mt-32">
           <div
             className={`rounded-xl border p-4 sm:p-5 ${
               coidaStatus.color === "red"
@@ -482,7 +493,7 @@ export default function DashboardPage() {
         </section>
 
         {/* Risk Ranking */}
-        <section id="risk" className="scroll-mt-28">
+        <section id="risk" className="scroll-mt-32">
           <h2 className={`text-lg font-semibold mb-3 flex items-center gap-2 ${lightMode ? "text-slate-900" : "text-slate-100"}`}>
             <AlertTriangle className="w-5 h-5 text-amber-400" />
             Risk Ranking (Service + Roadworthy + Income Exposure)
@@ -568,7 +579,7 @@ export default function DashboardPage() {
         )}
 
         {/* Fuel Impact */}
-        <section id="fuel" className="scroll-mt-28">
+        <section id="fuel" className="scroll-mt-32">
           <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
             <Fuel className="w-5 h-5 text-cyan-500" />
             Fuel Impact on Bulk Reserve
@@ -715,7 +726,7 @@ export default function DashboardPage() {
         </section>
 
         {/* Drivers – Schedules, Vehicles & Contact */}
-        <section id="drivers" className="scroll-mt-28">
+        <section id="drivers" className="scroll-mt-32">
           <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
             <Users className="w-5 h-5 text-violet-500" />
             Drivers – Schedules, Assigned Vehicle & Contact
@@ -871,7 +882,7 @@ export default function DashboardPage() {
         </section>
 
         {/* Document Scanner */}
-        <section id="scan" className="scroll-mt-28 text-slate-100">
+        <section id="scan" className="scroll-mt-32 text-slate-100">
         <DocumentScanner
           onMatch={(v) => {
             setSelected(v);

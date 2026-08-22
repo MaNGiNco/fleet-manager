@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Fleet Manager ",
+  title: "Fleet Manager | Downtime & Compliance Control",
   description: "Reduce downtime, manage certificates, fuel and schedules for your vehicle fleet",
 };
 
