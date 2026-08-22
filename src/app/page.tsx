@@ -388,8 +388,8 @@ export default function DashboardPage() {
         </section>
 
         {/* Risk Ranking */}
-        <section id="risk" className="scroll-mt-28 text-slate-100">
-          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2 text-slate-100">
+        <section id="risk" className="scroll-mt-28">
+          <h2 className={`text-lg font-semibold mb-3 flex items-center gap-2 ${lightMode ? "text-slate-900" : "text-slate-100"}`}>
             <AlertTriangle className="w-5 h-5 text-amber-400" />
             Risk Ranking (Service + Certificates + Income Exposure)
           </h2>
