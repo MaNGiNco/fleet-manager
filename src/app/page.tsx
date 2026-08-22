@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
-import type { Vehicle, RiskScore, FuelImpact } from "@/types";
+import type { Vehicle, RiskScore, FuelImpact, Driver, Schedule } from "@/types";
 import { calculateRiskScores, calculateFuelImpacts, kmToNextService, daysUntil } from "@/lib/utils";
 import VehicleCard from "@/components/VehicleCard";
 import DocumentScanner from "@/components/DocumentScanner";
@@ -15,6 +15,9 @@ import {
   CalendarClock,
   Brain,
   Loader2,
+  Phone,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 // Demo seed data when Supabase is not configured
@@ -128,6 +131,8 @@ const DEMO_VEHICLES: Vehicle[] = [
 
 export default function DashboardPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [risks, setRisks] = useState<RiskScore[]>([]);
   const [fuelImpacts, setFuelImpacts] = useState<FuelImpact[]>([]);
   const [selected, setSelected] = useState<Vehicle | null>(null);
@@ -136,8 +141,10 @@ export default function DashboardPage() {
   const [fuelReserve, setFuelReserve] = useState(8500);
   const [usingDemo, setUsingDemo] = useState(false);
   const [loading, setLoading] = useState(true);
-
   const [dataError, setDataError] = useState<string | null>(null);
+  const [showAllRisk, setShowAllRisk] = useState(false);
+  const [showAllFuel, setShowAllFuel] = useState(false);
+  const [showAllDrivers, setShowAllDrivers] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -168,10 +175,35 @@ export default function DashboardPage() {
 
         const { data: reserve } = await supabase.from("fuel_reserve").select("current_liters").limit(1).single();
         if (reserve) setFuelReserve(Number(reserve.current_liters));
+
+        const { data: driversData } = await supabase.from("drivers").select("*").order("name");
+        if (driversData) setDrivers(driversData as Driver[]);
+
+        const { data: schedulesData } = await supabase
+          .from("schedules")
+          .select("*")
+          .order("start_time", { ascending: false })
+          .limit(100);
+        if (schedulesData) setSchedules(schedulesData as Schedule[]);
       } else {
         setDataError("NEXT_PUBLIC_SUPABASE_URL is missing in this deployment. Add it in Vercel → Settings → Environment Variables and redeploy.");
         setVehicles(DEMO_VEHICLES);
         setUsingDemo(true);
+        // Demo drivers for offline mode
+        setDrivers([
+          { id: "d1", name: "Thabo Molefe", license_number: "GP123456", phone: "0821110001", status: "assigned", created_at: new Date().toISOString() },
+          { id: "d2", name: "Sipho Dlamini", license_number: "KZN789012", phone: "0832220002", status: "assigned", created_at: new Date().toISOString() },
+          { id: "d3", name: "Johan van der Berg", license_number: "WC345678", phone: "0843330003", status: "available", created_at: new Date().toISOString() },
+          { id: "d4", name: "Lindiwe Nkosi", license_number: "GP901234", phone: "0824440004", status: "assigned", created_at: new Date().toISOString() },
+          { id: "d5", name: "Pieter Botha", license_number: "EC567890", phone: "0835550005", status: "off", created_at: new Date().toISOString() },
+          { id: "d6", name: "Nomsa Khumalo", license_number: "KZN112233", phone: "0846660006", status: "assigned", created_at: new Date().toISOString() },
+          { id: "d7", name: "Andile Mbeki", license_number: "GP445566", phone: "0827770007", status: "available", created_at: new Date().toISOString() },
+          { id: "d8", name: "Fatima Abrahams", license_number: "WC778899", phone: "0838880008", status: "assigned", created_at: new Date().toISOString() },
+          { id: "d9", name: "Ruan Pretorius", license_number: "NW001122", phone: "0849990009", status: "assigned", created_at: new Date().toISOString() },
+          { id: "d10", name: "Zanele Sithole", license_number: "GP334455", phone: "0820000010", status: "available", created_at: new Date().toISOString() },
+          { id: "d11", name: "David Naidoo", license_number: "KZN667788", phone: "0831110011", status: "assigned", created_at: new Date().toISOString() },
+          { id: "d12", name: "Elmarie du Plessis", license_number: "WC990011", phone: "0842220012", status: "off", created_at: new Date().toISOString() },
+        ]);
       }
     } catch (err: any) {
       console.error("[Fleet] loadData exception:", err);
@@ -287,7 +319,7 @@ export default function DashboardPage() {
             Risk Ranking (Service + Certificates + Income Exposure)
           </h2>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {risks.map((r) => {
+            {(showAllRisk ? risks : risks.slice(0, 9)).map((r) => {
               const v = vehicles.find((x) => x.id === r.vehicle_id);
               if (!v) return null;
               return (
@@ -301,6 +333,24 @@ export default function DashboardPage() {
               );
             })}
           </div>
+          {risks.length > 9 && (
+            <div className="mt-4 text-center">
+              <button
+                onClick={() => setShowAllRisk(!showAllRisk)}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition"
+              >
+                {showAllRisk ? (
+                  <>
+                    <ChevronUp className="w-4 h-4" /> Show less
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="w-4 h-4" /> See more ({risks.length - 9} more)
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </section>
 
         {/* Downtime & Reschedule helper */}
@@ -357,7 +407,7 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {fuelImpacts.map((f) => (
+                {(showAllFuel ? fuelImpacts : fuelImpacts.slice(0, 10)).map((f) => (
                   <tr key={f.vehicle_id} className="border-b border-slate-800">
                     <td className="py-2 pr-4 font-mono">{f.plate}</td>
                     <td className="py-2 pr-4">{f.total_liters_used.toLocaleString()} L</td>
@@ -383,6 +433,132 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </div>
+          {fuelImpacts.length > 10 && (
+            <div className="mt-4 text-center">
+              <button
+                onClick={() => setShowAllFuel(!showAllFuel)}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition"
+              >
+                {showAllFuel ? (
+                  <>
+                    <ChevronUp className="w-4 h-4" /> Show less
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="w-4 h-4" /> See more ({fuelImpacts.length - 10} more)
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </section>
+
+        {/* Drivers – Schedules, Vehicles & Contact */}
+        <section>
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <Users className="w-5 h-5 text-violet-400" />
+            Drivers – Schedules, Assigned Vehicle & Contact
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-400 border-b border-slate-700">
+                  <th className="py-2 pr-4">Driver</th>
+                  <th className="py-2 pr-4">Status</th>
+                  <th className="py-2 pr-4">Assigned Vehicle</th>
+                  <th className="py-2 pr-4">Phone</th>
+                  <th className="py-2">Next / Recent Schedule</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(showAllDrivers ? drivers : drivers.slice(0, 10)).map((d) => {
+                  const assignedVehicle = vehicles.find((v) => v.assigned_driver_id === d.id);
+                  const driverSchedules = schedules
+                    .filter((s) => s.driver_id === d.id)
+                    .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime());
+                  const nextOrRecent = driverSchedules[0];
+                  const statusColor =
+                    d.status === "available"
+                      ? "bg-emerald-700 text-emerald-100"
+                      : d.status === "assigned"
+                      ? "bg-cyan-700 text-cyan-100"
+                      : "bg-slate-600 text-slate-200";
+                  return (
+                    <tr key={d.id} className="border-b border-slate-800">
+                      <td className="py-2.5 pr-4 font-medium">{d.name}</td>
+                      <td className="py-2.5 pr-4">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusColor}`}>
+                          {d.status === "off" ? "Off day" : d.status}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-4 font-mono text-slate-300">
+                        {assignedVehicle
+                          ? `${assignedVehicle.plate} (${assignedVehicle.vehicle_id})`
+                          : "—"}
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        {d.phone ? (
+                          <a href={`tel:${d.phone}`} className="inline-flex items-center gap-1 text-cyan-400 hover:underline">
+                            <Phone className="w-3 h-3" />
+                            {d.phone}
+                          </a>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="py-2.5 text-slate-400">
+                        {nextOrRecent ? (
+                          <span>
+                            {nextOrRecent.job_description || "Job"} ·{" "}
+                            <span className="text-slate-500">
+                              {new Date(nextOrRecent.start_time).toLocaleDateString("en-ZA", {
+                                day: "numeric",
+                                month: "short",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                            {" · "}
+                            <span
+                              className={
+                                nextOrRecent.status === "in_progress"
+                                  ? "text-amber-400"
+                                  : nextOrRecent.status === "completed"
+                                  ? "text-emerald-400"
+                                  : "text-slate-400"
+                              }
+                            >
+                              {nextOrRecent.status}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">No schedule</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {drivers.length > 10 && (
+            <div className="mt-4 text-center">
+              <button
+                onClick={() => setShowAllDrivers(!showAllDrivers)}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition"
+              >
+                {showAllDrivers ? (
+                  <>
+                    <ChevronUp className="w-4 h-4" /> Show less
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="w-4 h-4" /> See more ({drivers.length - 10} more)
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </section>
 
         {/* Document Scanner */}
