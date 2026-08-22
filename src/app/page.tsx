@@ -323,13 +323,14 @@ export default function DashboardPage() {
               const v = vehicles.find((x) => x.id === r.vehicle_id);
               if (!v) return null;
               return (
-                <VehicleCard
-                  key={v.id}
-                  vehicle={v}
-                  riskScore={r.total_risk}
-                  onSelect={setSelected}
-                  highlighted={selected?.id === v.id}
-                />
+                <div key={v.id} id={`risk-card-${v.id}`}>
+                  <VehicleCard
+                    vehicle={v}
+                    riskScore={r.total_risk}
+                    onSelect={setSelected}
+                    highlighted={selected?.id === v.id}
+                  />
+                </div>
               );
             })}
           </div>
@@ -408,8 +409,35 @@ export default function DashboardPage() {
               </thead>
               <tbody>
                 {(showAllFuel ? fuelImpacts : fuelImpacts.slice(0, 10)).map((f) => (
-                  <tr key={f.vehicle_id} className="border-b border-slate-800">
-                    <td className="py-2 pr-4 font-mono">{f.plate}</td>
+                  <tr
+                    key={f.vehicle_id}
+                    className={`border-b border-slate-800 ${
+                      selected?.id === f.vehicle_id ? "bg-cyan-950/40" : ""
+                    }`}
+                  >
+                    <td className="py-2 pr-4">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const v = vehicles.find((x) => x.id === f.vehicle_id);
+                          if (v) {
+                            setSelected(v);
+                            // Ensure the vehicle is visible in Risk Ranking
+                            const riskIndex = risks.findIndex((r) => r.vehicle_id === v.id);
+                            if (riskIndex >= 9) setShowAllRisk(true);
+                            // Scroll risk ranking card into view after paint
+                            setTimeout(() => {
+                              const el = document.getElementById(`risk-card-${v.id}`);
+                              el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                            }, 100);
+                          }
+                        }}
+                        className="font-mono text-cyan-400 hover:text-white hover:bg-cyan-600/30 hover:underline hover:scale-105 active:scale-95 cursor-pointer transition-all duration-150 rounded px-1.5 py-0.5 -mx-1.5"
+                        title="Show in Risk Ranking"
+                      >
+                        {f.plate}
+                      </button>
+                    </td>
                     <td className="py-2 pr-4">{f.total_liters_used.toLocaleString()} L</td>
                     <td className="py-2 pr-4">{f.percentage_of_reserve}%</td>
                     <td className="py-2 pr-4">{f.efficiency_score}/100</td>
