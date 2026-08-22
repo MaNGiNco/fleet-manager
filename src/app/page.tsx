@@ -432,7 +432,7 @@ export default function DashboardPage() {
                             }, 100);
                           }
                         }}
-                        className="font-mono text-cyan-400 hover:text-white hover:bg-cyan-600/30 hover:underline hover:scale-105 active:scale-95 cursor-pointer transition-all duration-150 rounded px-1.5 py-0.5 -mx-1.5"
+                        className="font-mono text-cyan-400 hover:text-white hover:bg-cyan-600/30 hover:scale-105 active:scale-95 cursor-pointer transition-all duration-150 rounded px-1.5 py-0.5 -mx-1.5"
                         title="Show in Risk Ranking"
                       >
                         {f.plate}
