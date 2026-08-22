@@ -651,21 +651,55 @@ export default function DashboardPage() {
           )}
         </section>
 
-        {selected && (
-          <div className="fixed bottom-4 right-4 max-w-sm bg-slate-800 border border-cyan-600 rounded-xl p-4 shadow-xl z-30">
-            <p className="text-xs text-cyan-400 mb-1">Selected</p>
-            <p className="font-semibold">{selected.plate}</p>
-            <p className="text-sm text-slate-400">
-              {selected.make} {selected.model} · {selected.status}
-            </p>
-            <button
-              onClick={() => setSelected(null)}
-              className="mt-2 text-xs text-slate-400 hover:text-white"
-            >
-              Close
-            </button>
-          </div>
-        )}
+        {selected && (() => {
+          const assignedDriver = drivers.find((d) => d.id === selected.assigned_driver_id);
+          const kmLeft = kmToNextService(selected);
+          const statusColor =
+            selected.status === "active"
+              ? "text-emerald-400"
+              : selected.status === "maintenance"
+              ? "text-amber-400"
+              : selected.status === "accident"
+              ? "text-red-400"
+              : "text-slate-400";
+          return (
+            <div className="fixed bottom-4 right-4 max-w-sm w-full bg-slate-800 border border-cyan-600 rounded-xl p-4 shadow-xl z-30">
+              <p className="text-xs text-cyan-400 mb-1">Selected</p>
+              <p className="font-semibold text-lg">{selected.plate}</p>
+              <p className={`text-sm font-medium capitalize ${statusColor}`}>
+                {selected.status}
+              </p>
+              <div className="mt-3 space-y-1.5 text-sm text-slate-300 border-t border-slate-700 pt-3">
+                <p>
+                  <span className="text-slate-500">Driver: </span>
+                  {assignedDriver?.name || "Unassigned"}
+                </p>
+                <p>
+                  <span className="text-slate-500">Phone: </span>
+                  {assignedDriver?.phone ? (
+                    <a href={`tel:${assignedDriver.phone}`} className="text-cyan-400 hover:underline">
+                      {assignedDriver.phone}
+                    </a>
+                  ) : (
+                    "—"
+                  )}
+                </p>
+                <p>
+                  <span className="text-slate-500">Km to next service: </span>
+                  <span className={kmLeft < 500 ? "text-red-400 font-medium" : kmLeft < 1000 ? "text-amber-400" : "text-slate-200"}>
+                    {Math.round(kmLeft).toLocaleString()} km
+                  </span>
+                </p>
+              </div>
+              <button
+                onClick={() => setSelected(null)}
+                className="mt-3 text-xs text-slate-400 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+          );
+        })()}
       </main>
     </div>
   );
