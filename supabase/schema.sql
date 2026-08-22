@@ -104,3 +104,17 @@ CREATE TRIGGER update_vehicles_updated_at
 INSERT INTO fuel_reserve (current_liters, capacity_liters, notes)
 SELECT 8500, 10000, 'Initial bulk tank level'
 WHERE NOT EXISTS (SELECT 1 FROM fuel_reserve LIMIT 1);
+
+
+-- Company-level compliance (COIDA is business-wide, not per vehicle)
+CREATE TABLE IF NOT EXISTS company_compliance (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  coida_expiry DATE,
+  company_name TEXT,
+  notes TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+INSERT INTO company_compliance (coida_expiry, company_name, notes)
+SELECT '2026-09-15'::date, 'Fleet Solutions (Pty) Ltd', 'Company-wide COIDA registration'
+WHERE NOT EXISTS (SELECT 1 FROM company_compliance LIMIT 1);

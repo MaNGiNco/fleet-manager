@@ -451,30 +451,43 @@ South African plates may appear as "WC 333-222", "333-222 WC", "CA 123-456", "GP
           matchedVehicle = result.vehicle;
           matchMeta = { score: result.score, method: result.method };
 
-          // Update certificate expiry when confident match + valid dates
+          // Update expiry dates when confident match + valid dates
           if (
-            matchedVehicle &&
             extracted.expiry_date &&
             typeof extracted.expiry_date === "string" &&
             extracted.document_type
           ) {
-            const updates: Record<string, string> = {};
             const docType = String(extracted.document_type).toUpperCase();
             if (docType.includes("COIDA")) {
-              updates.coida_expiry = extracted.expiry_date;
+              // Company-level — not stored on the vehicle
+              const { data: existing } = await supabase
+                .from("company_compliance")
+                .select("id")
+                .limit(1)
+                .maybeSingle();
+              if (existing?.id) {
+                await supabase
+                  .from("company_compliance")
+                  .update({
+                    coida_expiry: extracted.expiry_date,
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq("id", existing.id);
+              } else {
+                await supabase.from("company_compliance").insert({
+                  coida_expiry: extracted.expiry_date,
+                });
+              }
             } else if (
-              docType.includes("ROADWORTHY") ||
-              docType.includes("ROAD WORTHY")
+              matchedVehicle &&
+              (docType.includes("ROADWORTHY") || docType.includes("ROAD WORTHY"))
             ) {
-              updates.roadworthy_expiry = extracted.expiry_date;
-            }
-            if (Object.keys(updates).length > 0) {
               const { error: updateErr } = await supabase
                 .from("vehicles")
-                .update(updates)
+                .update({ roadworthy_expiry: extracted.expiry_date })
                 .eq("id", matchedVehicle.id);
               if (updateErr) {
-                console.error("Failed to update vehicle expiry:", updateErr);
+                console.error("Failed to update vehicle roadworthy:", updateErr);
               }
             }
           }

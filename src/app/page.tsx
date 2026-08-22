@@ -143,6 +143,7 @@ export default function DashboardPage() {
   const [analytics, setAnalytics] = useState<any>(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [fuelReserve, setFuelReserve] = useState(8500);
+  const [companyCoidaExpiry, setCompanyCoidaExpiry] = useState<string | null>("2026-09-15");
   const [usingDemo, setUsingDemo] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -200,6 +201,13 @@ export default function DashboardPage() {
 
         const { data: reserve } = await supabase.from("fuel_reserve").select("current_liters").limit(1).single();
         if (reserve) setFuelReserve(Number(reserve.current_liters));
+
+        const { data: compliance } = await supabase
+          .from("company_compliance")
+          .select("coida_expiry")
+          .limit(1)
+          .maybeSingle();
+        if (compliance?.coida_expiry) setCompanyCoidaExpiry(compliance.coida_expiry);
 
         const { data: driversData } = await supabase.from("drivers").select("*").order("name");
         if (driversData) setDrivers(driversData as Driver[]);
@@ -272,10 +280,21 @@ export default function DashboardPage() {
 
   const downVehicles = vehicles.filter((v) => v.status === "maintenance" || v.status === "accident");
   const certAlerts = vehicles.filter((v) => {
-    const c = daysUntil(v.coida_expiry);
     const r = daysUntil(v.roadworthy_expiry);
-    return (c !== null && c <= 20) || (r !== null && r <= 20);
+    return r !== null && r <= 20;
   });
+
+  const companyCoidaDays = daysUntil(companyCoidaExpiry);
+  const coidaStatus =
+    companyCoidaDays === null
+      ? { label: "Unknown", color: "slate", days: null as number | null }
+      : companyCoidaDays < 0
+      ? { label: "EXPIRED — renew immediately", color: "red", days: companyCoidaDays }
+      : companyCoidaDays <= 30
+      ? { label: "Renew within 30 days", color: "red", days: companyCoidaDays }
+      : companyCoidaDays <= 50
+      ? { label: "Renewal window approaching", color: "yellow", days: companyCoidaDays }
+      : { label: "Valid — plenty of time", color: "green", days: companyCoidaDays };
 
   const theme = lightMode
     ? {
@@ -378,7 +397,7 @@ export default function DashboardPage() {
             <p className="text-2xl font-bold text-red-500">{downVehicles.length}</p>
           </div>
           <div className={`${theme.card} rounded-xl p-4`}>
-            <p className={`text-xs ${theme.cardMuted} uppercase`}>Certs ≤20 days</p>
+            <p className={`text-xs ${theme.cardMuted} uppercase`}>Roadworthy ≤20 days</p>
             <p className="text-2xl font-bold text-amber-500">{certAlerts.length}</p>
           </div>
           <div className={`${theme.card} rounded-xl p-4`}>
@@ -387,11 +406,86 @@ export default function DashboardPage() {
           </div>
         </section>
 
+        {/* Company COIDA (business-level, not per vehicle) */}
+        <section id="coida" className="scroll-mt-28">
+          <div
+            className={`rounded-xl border p-4 sm:p-5 ${
+              coidaStatus.color === "red"
+                ? lightMode
+                  ? "bg-red-50 border-red-300 text-slate-900"
+                  : "bg-red-950/40 border-red-700 text-slate-100"
+                : coidaStatus.color === "yellow"
+                ? lightMode
+                  ? "bg-amber-50 border-amber-300 text-slate-900"
+                  : "bg-amber-950/30 border-amber-600 text-slate-100"
+                : lightMode
+                ? "bg-emerald-50 border-emerald-300 text-slate-900"
+                : "bg-emerald-950/30 border-emerald-700 text-slate-100"
+            }`}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  Company COIDA certificate
+                </h2>
+                <p className={`text-sm mt-1 ${lightMode ? "text-slate-600" : "text-slate-300"}`}>
+                  Applies to the whole business (all drivers & vehicles) — not issued per vehicle.
+                </p>
+              </div>
+              <span
+                className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide ${
+                  coidaStatus.color === "red"
+                    ? "bg-red-600 text-white"
+                    : coidaStatus.color === "yellow"
+                    ? "bg-amber-500 text-white"
+                    : "bg-emerald-600 text-white"
+                }`}
+              >
+                {coidaStatus.color === "red"
+                  ? "Red"
+                  : coidaStatus.color === "yellow"
+                  ? "Yellow"
+                  : "Green"}
+              </span>
+            </div>
+            <div className="mt-4 grid sm:grid-cols-2 gap-3 text-sm">
+              <div>
+                <p className={lightMode ? "text-slate-500" : "text-slate-400"}>Expiry date</p>
+                <p className="text-xl font-semibold mt-0.5">
+                  {companyCoidaExpiry
+                    ? new Date(companyCoidaExpiry).toLocaleDateString("en-ZA", {
+                        day: "numeric",
+                        month: "long",
+                        year: "numeric",
+                      })
+                    : "Not set"}
+                </p>
+              </div>
+              <div>
+                <p className={lightMode ? "text-slate-500" : "text-slate-400"}>Status</p>
+                <p className="text-lg font-medium mt-0.5">
+                  {coidaStatus.label}
+                  {coidaStatus.days !== null && coidaStatus.days >= 0 && (
+                    <span className={`block text-sm font-normal ${lightMode ? "text-slate-600" : "text-slate-300"}`}>
+                      {coidaStatus.days} day{coidaStatus.days === 1 ? "" : "s"} remaining
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <p className={`mt-4 text-xs leading-relaxed ${lightMode ? "text-slate-600" : "text-slate-400"}`}>
+              Note: Renewing a COIDA certificate can take <strong>5–15 working days</strong> depending on
+              application accuracy and departmental workload. Start the process early when status turns yellow
+              (50 days or less) so cover does not lapse.
+            </p>
+          </div>
+        </section>
+
         {/* Risk Ranking */}
         <section id="risk" className="scroll-mt-28">
           <h2 className={`text-lg font-semibold mb-3 flex items-center gap-2 ${lightMode ? "text-slate-900" : "text-slate-100"}`}>
             <AlertTriangle className="w-5 h-5 text-amber-400" />
-            Risk Ranking (Service + Certificates + Income Exposure)
+            Risk Ranking (Service + Roadworthy + Income Exposure)
           </h2>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {(showAllRisk ? risks : risks.slice(0, 9)).map((r) => {

@@ -21,7 +21,6 @@ export default function VehicleCard({
 }: Props) {
   const kmLeft = kmToNextService(vehicle);
   const progress = serviceProgress(vehicle);
-  const coidaDays = daysUntil(vehicle.coida_expiry);
   const roadDays = daysUntil(vehicle.roadworthy_expiry);
 
   const statusColor = lightMode
@@ -105,22 +104,7 @@ export default function VehicleCard({
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 text-xs mb-3">
-        <div
-          className={`p-2 rounded border ${
-            coidaDays !== null && coidaDays <= 20 ? certWarn : certOk
-          }`}
-        >
-          <p className={muted}>COIDA</p>
-          <p className={coidaDays !== null && coidaDays <= 20 ? warnText : ""}>
-            {formatDate(vehicle.coida_expiry)}
-            {coidaDays !== null && (
-              <span className="block text-[10px]">
-                {coidaDays < 0 ? "EXPIRED" : `${coidaDays}d left`}
-              </span>
-            )}
-          </p>
-        </div>
+      <div className="text-xs mb-3">
         <div
           className={`p-2 rounded border ${
             roadDays !== null && roadDays <= 20 ? certWarn : certOk

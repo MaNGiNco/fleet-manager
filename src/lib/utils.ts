@@ -46,20 +46,11 @@ export function calculateRiskScores(vehicles: Vehicle[]): RiskScore[] {
     const kmLeft = kmToNextService(v);
     const serviceRisk = Math.min(100, Math.max(0, 100 - (kmLeft / (v.service_interval_km || 5000)) * 100));
 
-    const coidaDays = daysUntil(v.coida_expiry);
+    // COIDA is company-level (not per vehicle) — only roadworthy affects vehicle cert risk
     const roadworthyDays = daysUntil(v.roadworthy_expiry);
     let certRisk = 0;
     const reasons: string[] = [];
 
-    if (coidaDays !== null) {
-      if (coidaDays < 0) {
-        certRisk = 100;
-        reasons.push("COIDA expired");
-      } else if (coidaDays <= 20) {
-        certRisk = Math.max(certRisk, 100 - coidaDays * 3);
-        reasons.push(`COIDA expires in ${coidaDays} days`);
-      }
-    }
     if (roadworthyDays !== null) {
       if (roadworthyDays < 0) {
         certRisk = 100;
