@@ -126,12 +126,11 @@ function findBestVehicleMatch(
   const coreExtracted = plateCore(extractedPlate);
   const alphanumExtracted = alphanum(extractedPlate || "");
 
-  let best: MatchResult | null = null;
+  // Use explicit array to avoid TS narrowing issues with mutable null
+  const candidates: MatchResult[] = [];
 
   const consider = (vehicle: any, score: number, method: string) => {
-    if (!best || score > best.score) {
-      best = { vehicle, score, method };
-    }
+    candidates.push({ vehicle, score, method });
   };
 
   for (const v of vehicles) {
@@ -196,8 +195,14 @@ function findBestVehicleMatch(
     }
   }
 
+  if (candidates.length === 0) return null;
+
+  // Pick highest score
+  candidates.sort((a, b) => b.score - a.score);
+  const best = candidates[0];
+
   // Only accept matches above threshold
-  if (best && best.score >= 0.75) return best;
+  if (best.score >= 0.75) return best;
   return null;
 }
 
