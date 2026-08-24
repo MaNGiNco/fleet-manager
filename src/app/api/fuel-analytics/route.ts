@@ -209,7 +209,81 @@ export async function POST(req: NextRequest) {
       })),
     };
 
-    return NextResponse.json({ success: true, analytics });
+
+    // Optional: re-verify last refuel cost vs current researched prices
+    let last_fill_price_check: any = null;
+    if (last && last.cost != null && Number(last.amount_liters) > 0) {
+      const fuelHint = (last.notes || "").toLowerCase().includes("petrol") ? "petrol" : "diesel";
+      // Use OpenRouter research if available; else Aug 2026 inland defaults
+      let unit = fuelHint === "petrol" ? 25.58 : 26.17;
+      let label = fuelHint === "petrol" ? "Petrol 95 inland (fallback)" : "Diesel 500ppm inland (fallback)";
+      let source = "Fallback DMPR-aligned Aug 2026";
+      if (OPENROUTER_API_KEY) {
+        try {
+          const prompt = `Current South Africa inland pump price in R/L for ${fuelHint === "petrol" ? "95 ULP petrol" : "500ppm diesel"}. STRICT JSON: {"price_per_litre": number, "label": "string", "note": "string"}`;
+          const res = await fetch(OPENROUTER_URL, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+              "Content-Type": "application/json",
+              "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "https://fleet-manager.vercel.app",
+              "X-Title": "Fleet Manager Last Fill Price Check",
+            },
+            body: JSON.stringify({
+              model: TEXT_MODEL,
+              messages: [{ role: "user", content: prompt }],
+              max_tokens: 100,
+              temperature: 0.1,
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const content = data.choices?.[0]?.message?.content || "";
+            const m = content.match(/\{[\s\S]*\}/);
+            if (m) {
+              const p = JSON.parse(m[0]);
+              const n = Number(p.price_per_litre);
+              if (Number.isFinite(n) && n > 10 && n < 50) {
+                unit = Math.round(n * 100) / 100;
+                label = String(p.label || label);
+                source = String(p.note || "OpenRouter");
+              }
+            }
+          }
+        } catch { /* keep fallback */ }
+      }
+      const slipL = Number(last.amount_liters);
+      const cost = Number(last.cost);
+      const expected = Math.round((cost / unit) * 100) / 100;
+      const delta = Math.round((slipL - expected) * 100) / 100;
+      const pct = Math.round((delta / expected) * 1000) / 10;
+      const implied = Math.round((cost / slipL) * 100) / 100;
+      let status: "match" | "under_liters" | "over_liters" = "match";
+      if (Math.abs(pct) > 5 && Math.abs(delta) > 1.5) {
+        status = delta < 0 ? "under_liters" : "over_liters";
+      }
+      last_fill_price_check = {
+        researched_price_per_litre: unit,
+        researched_price_label: label,
+        price_source: source,
+        implied_price_per_litre: implied,
+        expected_liters_from_cost: expected,
+        slip_liters: slipL,
+        cost_zar: cost,
+        liters_delta: delta,
+        liters_delta_pct: pct,
+        match_status: status,
+        message:
+          status === "match"
+            ? `Last fill ${slipL} L at R${cost} matches ~R${unit}/L (${label}).`
+            : `Last fill ${slipL} L vs expected ~${expected} L from R${cost} at R${unit}/L (${delta} L, ${pct}%).`,
+      };
+    }
+
+    return NextResponse.json({
+      success: true,
+      analytics: { ...analytics, last_fill_price_check },
+    });
   } catch (error: any) {
     console.error("Fuel analytics error:", error);
     return NextResponse.json({ error: error?.message || "Internal error" }, { status: 500 });

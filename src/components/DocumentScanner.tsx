@@ -9,6 +9,27 @@ interface ScanResult {
   scanId?: string;
   isFuelSlip?: boolean;
   researched_avg_l_per_100km?: number | null;
+  priceVerification?: {
+    slip_liters: number | null;
+    cost_zar: number | null;
+    researched_price_per_litre: number;
+    researched_price_label: string;
+    price_source: string;
+    implied_price_per_litre: number | null;
+    expected_liters_from_cost: number | null;
+    liters_delta: number | null;
+    liters_delta_pct: number | null;
+    match_status: "match" | "under_liters" | "over_liters" | "insufficient_data";
+    message: string;
+    price_board?: {
+      petrol_93: number;
+      petrol_95: number;
+      diesel_500ppm: number;
+      diesel_50ppm: number;
+      region: string;
+      effective: string;
+    };
+  } | null;
 }
 
 export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => void }) {
@@ -181,6 +202,86 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
               </>
             )}
           </div>
+          {isFuel && result.priceVerification && (
+            <div
+              className={`mt-3 p-3 rounded-lg border text-xs space-y-1.5 ${
+                result.priceVerification.match_status === "match"
+                  ? "bg-emerald-900/30 border-emerald-700"
+                  : result.priceVerification.match_status === "insufficient_data"
+                  ? "bg-slate-800/80 border-slate-600"
+                  : "bg-amber-900/30 border-amber-700"
+              }`}
+            >
+              <p className="font-medium text-slate-100 flex items-center gap-1.5">
+                <Fuel className="w-3.5 h-3.5 text-cyan-400" />
+                Price check (litres vs spend)
+              </p>
+              <p
+                className={
+                  result.priceVerification.match_status === "match"
+                    ? "text-emerald-300"
+                    : result.priceVerification.match_status === "insufficient_data"
+                    ? "text-slate-400"
+                    : "text-amber-300"
+                }
+              >
+                {result.priceVerification.message}
+              </p>
+              <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-slate-300 pt-1">
+                <span>Researched price</span>
+                <span className="font-mono text-cyan-300">
+                  R{result.priceVerification.researched_price_per_litre}/L
+                  <span className="text-slate-500 block text-[10px]">
+                    {result.priceVerification.researched_price_label}
+                  </span>
+                </span>
+                <span>Implied from slip</span>
+                <span className="font-mono">
+                  {result.priceVerification.implied_price_per_litre != null
+                    ? `R${result.priceVerification.implied_price_per_litre}/L`
+                    : "—"}
+                </span>
+                <span>Expected litres @ price</span>
+                <span className="font-mono">
+                  {result.priceVerification.expected_liters_from_cost != null
+                    ? `${result.priceVerification.expected_liters_from_cost} L`
+                    : "—"}
+                </span>
+                <span>Slip litres</span>
+                <span className="font-mono">
+                  {result.priceVerification.slip_liters != null
+                    ? `${result.priceVerification.slip_liters} L`
+                    : "—"}
+                </span>
+                <span>Delta</span>
+                <span
+                  className={`font-mono ${
+                    result.priceVerification.match_status === "match"
+                      ? "text-emerald-400"
+                      : result.priceVerification.match_status === "insufficient_data"
+                      ? ""
+                      : "text-amber-400"
+                  }`}
+                >
+                  {result.priceVerification.liters_delta != null
+                    ? `${result.priceVerification.liters_delta > 0 ? "+" : ""}${result.priceVerification.liters_delta} L (${result.priceVerification.liters_delta_pct}%)`
+                    : "—"}
+                </span>
+              </div>
+              {result.priceVerification.price_board && (
+                <p className="text-[10px] text-slate-500 pt-1">
+                  Board ({result.priceVerification.price_board.region}, eff.{" "}
+                  {result.priceVerification.price_board.effective}): 93 R
+                  {result.priceVerification.price_board.petrol_93} · 95 R
+                  {result.priceVerification.price_board.petrol_95} · diesel 500ppm R
+                  {result.priceVerification.price_board.diesel_500ppm} · 50ppm R
+                  {result.priceVerification.price_board.diesel_50ppm}
+                  {" · "}
+                  {result.priceVerification.price_source}
+                </p>
+              )}
+            </div>
+          )}
           {result.matchedVehicle ? (
             <div className="mt-3 p-3 bg-emerald-900/40 border border-emerald-700 rounded-lg">
               <p className="text-emerald-300 font-medium">Matched Vehicle</p>

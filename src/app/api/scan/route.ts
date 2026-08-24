@@ -342,6 +342,198 @@ Use a realistic number between 5 and 20. If unknown, still give your best estima
   }
 }
 
+
+/** Current SA inland pump prices (ZAR/L) via OpenRouter, with hard fallback for Aug 2026 */
+async function researchCurrentFuelPrices(fuelTypeHint?: string | null): Promise<{
+  petrol_93: number;
+  petrol_95: number;
+  diesel_500ppm: number;
+  diesel_50ppm: number;
+  region: string;
+  effective: string;
+  source_note: string;
+  selected_price: number;
+  selected_label: string;
+}> {
+  // Official-ish inland defaults effective ~5 Aug 2026 (DMPR)
+  const fallback = {
+    petrol_93: 25.42,
+    petrol_95: 25.58,
+    diesel_500ppm: 26.17,
+    diesel_50ppm: 26.9,
+    region: "inland",
+    effective: "2026-08-05",
+    source_note: "Fallback DMPR-aligned inland prices (Aug 2026)",
+  };
+
+  const pick = (p: typeof fallback) => {
+    const hint = (fuelTypeHint || "").toLowerCase();
+    if (hint.includes("diesel") || hint.includes("50ppm") || hint.includes("500")) {
+      if (hint.includes("50") && !hint.includes("500")) {
+        return { selected_price: p.diesel_50ppm, selected_label: "Diesel 50ppm inland" };
+      }
+      return { selected_price: p.diesel_500ppm, selected_label: "Diesel 500ppm inland" };
+    }
+    if (hint.includes("93")) {
+      return { selected_price: p.petrol_93, selected_label: "Petrol 93 inland" };
+    }
+    if (hint.includes("95") || hint.includes("petrol") || hint.includes("ulp")) {
+      return { selected_price: p.petrol_95, selected_label: "Petrol 95 inland" };
+    }
+    // Fleet default: diesel is most common for bakkies
+    return { selected_price: p.diesel_500ppm, selected_label: "Diesel 500ppm inland (assumed)" };
+  };
+
+  if (!OPENROUTER_API_KEY) {
+    const sel = pick(fallback);
+    return { ...fallback, ...sel };
+  }
+
+  try {
+    const prompt = `What are the current official South African inland (Gauteng) pump fuel prices in Rand per litre as of today?
+Reply with STRICT JSON only (no markdown):
+{
+  "petrol_93": number,
+  "petrol_95": number,
+  "diesel_500ppm": number,
+  "diesel_50ppm": number,
+  "region": "inland",
+  "effective": "YYYY-MM-DD",
+  "source_note": "brief source e.g. DMPR Aug 2026"
+}
+Use realistic regulated prices. Diesel may be wholesale guideline + retail margin.`;
+
+    const res = await fetch(OPENROUTER_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "https://fleet-manager.vercel.app",
+        "X-Title": "Fleet Manager Fuel Price Research",
+      },
+      body: JSON.stringify({
+        model: TEXT_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 250,
+        temperature: 0.1,
+      }),
+    });
+    if (!res.ok) {
+      const sel = pick(fallback);
+      return { ...fallback, ...sel, source_note: "API failed; using fallback Aug 2026 prices" };
+    }
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content || "";
+    const match = content.match(/\{[\s\S]*\}/);
+    if (!match) {
+      const sel = pick(fallback);
+      return { ...fallback, ...sel };
+    }
+    const parsed = JSON.parse(match[0]);
+    const clamp = (n: any, def: number) => {
+      const v = Number(n);
+      return Number.isFinite(v) && v > 10 && v < 50 ? Math.round(v * 100) / 100 : def;
+    };
+    const prices = {
+      petrol_93: clamp(parsed.petrol_93, fallback.petrol_93),
+      petrol_95: clamp(parsed.petrol_95, fallback.petrol_95),
+      diesel_500ppm: clamp(parsed.diesel_500ppm, fallback.diesel_500ppm),
+      diesel_50ppm: clamp(parsed.diesel_50ppm, fallback.diesel_50ppm),
+      region: typeof parsed.region === "string" ? parsed.region : "inland",
+      effective: typeof parsed.effective === "string" ? parsed.effective : fallback.effective,
+      source_note: typeof parsed.source_note === "string" ? parsed.source_note : "OpenRouter research",
+    };
+    const sel = pick(prices);
+    return { ...prices, ...sel };
+  } catch {
+    const sel = pick(fallback);
+    return { ...fallback, ...sel };
+  }
+}
+
+/**
+ * Verify slip litres vs cost using researched unit price.
+ * Also derives implied unit price from slip (cost/liters) for comparison.
+ */
+function verifyFuelLitresVsSpend(opts: {
+  liters: number | null;
+  costZar: number | null;
+  researchedPricePerLitre: number;
+  priceLabel: string;
+  sourceNote: string;
+}): {
+  slip_liters: number | null;
+  cost_zar: number | null;
+  researched_price_per_litre: number;
+  researched_price_label: string;
+  price_source: string;
+  implied_price_per_litre: number | null;
+  expected_liters_from_cost: number | null;
+  liters_delta: number | null;
+  liters_delta_pct: number | null;
+  match_status: "match" | "under_liters" | "over_liters" | "insufficient_data";
+  message: string;
+} {
+  const { liters, costZar, researchedPricePerLitre, priceLabel, sourceNote } = opts;
+  const result = {
+    slip_liters: liters,
+    cost_zar: costZar,
+    researched_price_per_litre: researchedPricePerLitre,
+    researched_price_label: priceLabel,
+    price_source: sourceNote,
+    implied_price_per_litre: null as number | null,
+    expected_liters_from_cost: null as number | null,
+    liters_delta: null as number | null,
+    liters_delta_pct: null as number | null,
+    match_status: "insufficient_data" as "match" | "under_liters" | "over_liters" | "insufficient_data",
+    message: "Need both litres and amount spent on the slip to verify.",
+  };
+
+  if (liters != null && liters > 0 && costZar != null && costZar > 0) {
+    result.implied_price_per_litre = Math.round((costZar / liters) * 100) / 100;
+  }
+
+  if (costZar != null && costZar > 0 && researchedPricePerLitre > 0) {
+    result.expected_liters_from_cost =
+      Math.round((costZar / researchedPricePerLitre) * 100) / 100;
+  }
+
+  if (
+    liters != null &&
+    liters > 0 &&
+    result.expected_liters_from_cost != null
+  ) {
+    const delta = Math.round((liters - result.expected_liters_from_cost) * 100) / 100;
+    const pct = Math.round((delta / result.expected_liters_from_cost) * 1000) / 10;
+    result.liters_delta = delta;
+    result.liters_delta_pct = pct;
+
+    // Tolerance: ±5% or ±1.5 L (whichever is larger relative buffer)
+    const tolPct = 5;
+    const tolAbs = 1.5;
+    if (Math.abs(pct) <= tolPct || Math.abs(delta) <= tolAbs) {
+      result.match_status = "match";
+      result.message = `Litres on slip (${liters} L) align with spend at ${priceLabel} (~R${researchedPricePerLitre}/L). Expected ~${result.expected_liters_from_cost} L.`;
+    } else if (delta < 0) {
+      result.match_status = "under_liters";
+      result.message = `Slip shows ${liters} L but spend of R${costZar} at ~R${researchedPricePerLitre}/L (${priceLabel}) should buy ~${result.expected_liters_from_cost} L (${delta} L / ${pct}%). Check OCR, station premium, or under-delivery.`;
+    } else {
+      result.match_status = "over_liters";
+      result.message = `Slip shows ${liters} L but spend of R${costZar} at ~R${researchedPricePerLitre}/L suggests ~${result.expected_liters_from_cost} L only (+${delta} L / +${pct}%). Possible OCR error or discounted price.`;
+    }
+  } else if (result.implied_price_per_litre != null) {
+    result.message = `Implied pump price from slip: R${result.implied_price_per_litre}/L vs researched ${priceLabel} R${researchedPricePerLitre}/L.`;
+    const diff = Math.abs(result.implied_price_per_litre - researchedPricePerLitre);
+    if (diff <= 1.5) result.match_status = "match";
+    else if (result.implied_price_per_litre > researchedPricePerLitre + 1.5)
+      result.match_status = "under_liters";
+    else result.match_status = "over_liters";
+  }
+
+  return result;
+}
+
+
 // ---------------------------------------------------------------------------
 // API route
 // ---------------------------------------------------------------------------
@@ -388,13 +580,15 @@ Extract STRICT JSON only (no markdown, no explanation):
   "odometer": number or null,
   "fuel_level_pct": number or null,
   "station_name": "string or null",
-  "fuel_type": "diesel" | "petrol" | null,
+  "fuel_type": "diesel" | "petrol" | "diesel 50ppm" | "diesel 500ppm" | "petrol 93" | "petrol 95" | null,
+  "price_per_litre": number or null,
   "transaction_date": "YYYY-MM-DD or null"
 }
 
 Rules:
 - If this is a fuel slip / receipt, set document_type to "Fuel Slip" and fill liters, cost_zar, odometer, fuel_level_pct (0-100 if shown), station_name, fuel_type, transaction_date.
 - fuel_level_pct is the tank percentage AFTER fill if printed; otherwise null.
+- price_per_litre is the unit price shown on the slip (R/L) if printed; otherwise null.
 - South African plates may appear as "WC 333-222", "333-222 WC", "CA 123-456", "GP 12 AB GP", etc. Extract the plate text as written.
 - If a field cannot be read confidently, use null.`;
 
@@ -666,9 +860,47 @@ Rules:
       console.error("Scan insert exception:", insertCatch);
     }
 
-    // Optional: research avg consumption when fuel slip matched a vehicle
+    // Optional: research avg consumption + current fuel prices when fuel slip
     let researchedAvg: number | null = null;
-    if (matchedVehicle && isFuelSlip(extracted.document_type)) {
+    let priceVerification: any = null;
+    const fuelSlipDetected = isFuelSlip(extracted.document_type);
+
+    if (fuelSlipDetected) {
+      const litersNum =
+        typeof extracted.liters === "number"
+          ? extracted.liters
+          : Number(extracted.liters);
+      const costNum =
+        typeof extracted.cost_zar === "number"
+          ? extracted.cost_zar
+          : Number(extracted.cost_zar);
+      const liters =
+        Number.isFinite(litersNum) && litersNum > 0 ? litersNum : null;
+      const costZar =
+        Number.isFinite(costNum) && costNum > 0 ? costNum : null;
+
+      const prices = await researchCurrentFuelPrices(
+        typeof extracted.fuel_type === "string" ? extracted.fuel_type : null
+      );
+      priceVerification = verifyFuelLitresVsSpend({
+        liters,
+        costZar,
+        researchedPricePerLitre: prices.selected_price,
+        priceLabel: prices.selected_label,
+        sourceNote: prices.source_note,
+      });
+      // Attach full price board for UI
+      priceVerification.price_board = {
+        petrol_93: prices.petrol_93,
+        petrol_95: prices.petrol_95,
+        diesel_500ppm: prices.diesel_500ppm,
+        diesel_50ppm: prices.diesel_50ppm,
+        region: prices.region,
+        effective: prices.effective,
+      };
+    }
+
+    if (matchedVehicle && fuelSlipDetected) {
       researchedAvg = await researchAvgConsumption(
         matchedVehicle.make || "",
         matchedVehicle.model || "",
@@ -702,7 +934,8 @@ Rules:
       matchedVehicle,
       scanId,
       researched_avg_l_per_100km: researchedAvg,
-      isFuelSlip: isFuelSlip(extracted.document_type),
+      isFuelSlip: fuelSlipDetected,
+      priceVerification,
       matchInfo: {
         normalizedPlate: normalizePlate(extractedPlate),
         corePlate: plateCore(extractedPlate),

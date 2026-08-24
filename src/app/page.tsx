@@ -1174,6 +1174,26 @@ export default function DashboardPage() {
                             ))}
                           </ul>
                         )}
+                      {fuelAnalytics.last_fill_price_check && (
+                        <div
+                          className={`mt-2 p-2 rounded-lg border text-[11px] ${
+                            fuelAnalytics.last_fill_price_check.match_status === "match"
+                              ? "border-emerald-600/50 bg-emerald-500/5"
+                              : "border-amber-600/50 bg-amber-500/5"
+                          }`}
+                        >
+                          <p className="font-medium mb-0.5">Last fill · price check</p>
+                          <p className={theme.cardMuted}>
+                            {fuelAnalytics.last_fill_price_check.message}
+                          </p>
+                          <p className="mt-1 font-mono">
+                            Slip {fuelAnalytics.last_fill_price_check.slip_liters} L · expected{" "}
+                            {fuelAnalytics.last_fill_price_check.expected_liters_from_cost} L @ R
+                            {fuelAnalytics.last_fill_price_check.researched_price_per_litre}/L · implied R
+                            {fuelAnalytics.last_fill_price_check.implied_price_per_litre}/L
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                   {!loadingFuelAnalytics && !fuelAnalytics && (
