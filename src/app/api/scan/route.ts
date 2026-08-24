@@ -752,58 +752,114 @@ Rules:
             }
           }
 
-          // Fuel slip path — update fuel level, odometer, create transaction, deduct reserve
+          // Fuel slip path — ALWAYS update fuel level + odometer, create transaction, deduct reserve
           if (matchedVehicle && isFuelSlip(extracted.document_type)) {
-            const liters =
+            const litersRaw =
               typeof extracted.liters === "number"
                 ? extracted.liters
-                : Number(extracted.liters) || null;
-            const cost =
+                : Number(extracted.liters);
+            const liters =
+              Number.isFinite(litersRaw) && litersRaw > 0 ? litersRaw : null;
+            const costRaw =
               typeof extracted.cost_zar === "number"
                 ? extracted.cost_zar
-                : Number(extracted.cost_zar) || null;
-            const odo =
+                : Number(extracted.cost_zar);
+            const cost =
+              Number.isFinite(costRaw) && costRaw > 0 ? costRaw : null;
+            const odoRaw =
               typeof extracted.odometer === "number"
                 ? extracted.odometer
-                : Number(extracted.odometer) || null;
-            let levelPct =
+                : Number(extracted.odometer);
+            const odo =
+              Number.isFinite(odoRaw) && odoRaw > 0 ? odoRaw : null;
+
+            let levelPct: number | null = null;
+            const levelRaw =
               typeof extracted.fuel_level_pct === "number"
                 ? extracted.fuel_level_pct
                 : Number(extracted.fuel_level_pct);
-            if (!Number.isFinite(levelPct) || levelPct < 0 || levelPct > 100) {
-              levelPct = null;
+            if (Number.isFinite(levelRaw) && levelRaw >= 0 && levelRaw <= 100) {
+              levelPct = Math.round(levelRaw * 10) / 10;
+            } else if (liters != null) {
+              // Estimate tank % when slip has litres but no gauge reading.
+              // Typical SA bakkie/LDV tank ~70–90 L; use 80 L default.
+              const tankLiters = 80;
+              const prev =
+                matchedVehicle.current_fuel_level_pct != null
+                  ? Number(matchedVehicle.current_fuel_level_pct)
+                  : 15;
+              if (liters >= tankLiters * 0.55) {
+                // Large fill → treat as near-full
+                levelPct = Math.min(100, Math.round((70 + (liters / tankLiters) * 30) * 10) / 10);
+              } else {
+                const addedPct = (liters / tankLiters) * 100;
+                levelPct = Math.min(100, Math.round((prev + addedPct) * 10) / 10);
+              }
             }
 
             const vehicleUpdate: Record<string, unknown> = {
               last_refuel_date: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
             };
-            if (levelPct !== null) vehicleUpdate.current_fuel_level_pct = levelPct;
-            if (odo !== null && odo > 0) {
-              // Only advance odometer if higher than current
-              if (!matchedVehicle.current_odometer || odo >= Number(matchedVehicle.current_odometer)) {
+            // Always write fuel level when we have a value (slip or estimated)
+            if (levelPct !== null) {
+              vehicleUpdate.current_fuel_level_pct = levelPct;
+            }
+            if (odo !== null) {
+              if (
+                !matchedVehicle.current_odometer ||
+                odo >= Number(matchedVehicle.current_odometer)
+              ) {
                 vehicleUpdate.current_odometer = odo;
               }
             }
 
-            await supabase.from("vehicles").update(vehicleUpdate).eq("id", matchedVehicle.id);
+            const { error: vehUpdateErr } = await supabase
+              .from("vehicles")
+              .update(vehicleUpdate)
+              .eq("id", matchedVehicle.id);
+            if (vehUpdateErr) {
+              console.error("Failed to update vehicle fuel level:", vehUpdateErr);
+            } else {
+              console.log(
+                "[Fuel] Updated vehicle",
+                matchedVehicle.plate,
+                "fuel_level_pct=",
+                levelPct,
+                "odo=",
+                vehicleUpdate.current_odometer
+              );
+            }
 
             // Refresh matched vehicle snapshot for response
             matchedVehicle = { ...matchedVehicle, ...vehicleUpdate };
 
-            if (liters && liters > 0) {
-              await supabase.from("fuel_transactions").insert({
-                vehicle_id: matchedVehicle.id,
-                amount_liters: liters,
-                cost: cost,
-                transaction_type: "vehicle_refuel",
-                odometer_at_refuel: odo,
-                fuel_level_after_pct: levelPct,
-                station_name:
-                  typeof extracted.station_name === "string" ? extracted.station_name : null,
-                notes: extracted.fuel_type
-                  ? `Fuel type: ${extracted.fuel_type}`
-                  : "From fuel slip scan",
-              });
+            let fuelTxId: string | null = null;
+            if (liters != null) {
+              const { data: txRow, error: txErr } = await supabase
+                .from("fuel_transactions")
+                .insert({
+                  vehicle_id: matchedVehicle.id,
+                  amount_liters: liters,
+                  cost: cost,
+                  transaction_type: "vehicle_refuel",
+                  odometer_at_refuel: odo,
+                  fuel_level_after_pct: levelPct,
+                  station_name:
+                    typeof extracted.station_name === "string"
+                      ? extracted.station_name
+                      : null,
+                  notes: extracted.fuel_type
+                    ? `Fuel type: ${extracted.fuel_type}`
+                    : "From fuel slip scan",
+                })
+                .select("id")
+                .single();
+              if (txErr) {
+                console.error("Fuel transaction insert failed:", txErr);
+              } else {
+                fuelTxId = txRow?.id ?? null;
+              }
 
               // Deduct from bulk reserve (best-effort)
               try {
@@ -826,6 +882,12 @@ Rules:
                 console.error("Fuel reserve update failed:", reserveErr);
               }
             }
+
+            // Stash for fraud path after price verification (outside match block we still have IDs)
+            (matchedVehicle as any).__fuelTxId = fuelTxId;
+            (matchedVehicle as any).__levelPct = levelPct;
+            (matchedVehicle as any).__liters = liters;
+            (matchedVehicle as any).__cost = cost;
           }
         }
       }
@@ -898,6 +960,184 @@ Rules:
         region: prices.region,
         effective: prices.effective,
       };
+
+      // Flag fraud when litres vs spend do not match (beyond tolerance)
+      if (
+        priceVerification.match_status === "under_liters" ||
+        priceVerification.match_status === "over_liters"
+      ) {
+        const driverId = matchedVehicle?.assigned_driver_id || null;
+        let driverName = "Driver";
+        let driverPhone: string | null = null;
+        if (driverId) {
+          try {
+            const { data: drv } = await supabase
+              .from("drivers")
+              .select("id, name, phone")
+              .eq("id", driverId)
+              .maybeSingle();
+            if (drv?.name) driverName = drv.name;
+            if (drv?.phone) driverPhone = drv.phone;
+          } catch (e) {
+            console.error("Driver lookup for fraud flag failed:", e);
+          }
+        } else if (matchedVehicle?.id) {
+          // Fallback: any driver currently assigned in schedules is not needed; leave generic
+        }
+
+        const script = `Hi ${driverName}, the manager is kindly requesting an urgent meeting with you within the next 24hrs. May I note your response?`;
+
+        const severity =
+          Math.abs(Number(priceVerification.liters_delta_pct) || 0) >= 20
+            ? "critical"
+            : Math.abs(Number(priceVerification.liters_delta_pct) || 0) >= 10
+            ? "high"
+            : "medium";
+
+        let fraudFlagId: string | null = null;
+        try {
+          const { data: flagRow, error: flagErr } = await supabase
+            .from("fraud_flags")
+            .insert({
+              vehicle_id: matchedVehicle?.id || null,
+              driver_id: driverId,
+              fuel_transaction_id: (matchedVehicle as any)?.__fuelTxId || null,
+              document_scan_id: null, // filled after scan insert if needed
+              plate: matchedVehicle?.plate || extractedPlate,
+              reason: priceVerification.message,
+              match_status: priceVerification.match_status,
+              slip_liters: priceVerification.slip_liters,
+              expected_liters: priceVerification.expected_liters_from_cost,
+              cost_zar: priceVerification.cost_zar,
+              researched_price_per_litre: priceVerification.researched_price_per_litre,
+              liters_delta: priceVerification.liters_delta,
+              severity,
+              status: "open",
+              voice_note_script: script,
+              notes: `Auto-flagged from fuel slip scan. Implied R${priceVerification.implied_price_per_litre}/L vs researched R${priceVerification.researched_price_per_litre}/L.`,
+            })
+            .select("id")
+            .single();
+          if (flagErr) {
+            console.error("Fraud flag insert failed:", flagErr);
+          } else {
+            fraudFlagId = flagRow?.id ?? null;
+          }
+        } catch (fe) {
+          console.error("Fraud flag exception:", fe);
+        }
+
+        priceVerification.fraud_flagged = true;
+        priceVerification.fraud_flag_id = fraudFlagId;
+        priceVerification.severity = severity;
+        priceVerification.voice_note = {
+          script,
+          driver_name: driverName,
+          driver_id: driverId,
+          driver_phone: driverPhone,
+          voice: "celeste", // calm confident female
+          status: "pending_send",
+        };
+      } else {
+        priceVerification.fraud_flagged = false;
+      }
+    }
+
+    let fraudAlert: any = null;
+    if (
+      fuelSlipDetected &&
+      priceVerification &&
+      (priceVerification.match_status === "under_liters" ||
+        priceVerification.match_status === "over_liters")
+    ) {
+      try {
+        let driverName = "Driver";
+        let driverPhone: string | null = null;
+        let driverId: string | null = null;
+        if (matchedVehicle?.assigned_driver_id) {
+          const { data: drv } = await supabase
+            .from("drivers")
+            .select("*")
+            .eq("id", matchedVehicle.assigned_driver_id)
+            .maybeSingle();
+          if (drv) {
+            driverName = drv.name || driverName;
+            driverPhone = drv.phone || null;
+            driverId = drv.id;
+          }
+        }
+        // Fallback: try any driver linked via schedules if no assigned driver
+        if (!driverId && matchedVehicle?.id) {
+          const { data: sched } = await supabase
+            .from("schedules")
+            .select("driver_id, drivers(id, name, phone)")
+            .eq("vehicle_id", matchedVehicle.id)
+            .order("start_time", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const d: any = (sched as any)?.drivers;
+          if (d) {
+            driverName = d.name || driverName;
+            driverPhone = d.phone || null;
+            driverId = d.id || null;
+          }
+        }
+
+        const script = `Hi ${driverName}, the manager is kindly requesting an urgent meeting with you within the next 24 hours. May I note your response?`;
+        const reason = `Fuel slip fraud flag: ${priceVerification.match_status}. ${priceVerification.message}`;
+        const row = {
+          vehicle_id: matchedVehicle?.id || null,
+          driver_id: driverId,
+          document_scan_id: scanId,
+          plate: matchedVehicle?.plate || extractedPlate || null,
+          driver_name: driverName,
+          driver_phone: driverPhone,
+          match_status: priceVerification.match_status,
+          slip_liters: priceVerification.slip_liters,
+          expected_liters: priceVerification.expected_liters_from_cost,
+          cost_zar: priceVerification.cost_zar,
+          researched_price_per_litre: priceVerification.researched_price_per_litre,
+          liters_delta: priceVerification.liters_delta,
+          liters_delta_pct: priceVerification.liters_delta_pct,
+          reason,
+          voice_script: script,
+          voice_note_status: "pending",
+          status: "open",
+        };
+        const { data: alertRow, error: alertErr } = await supabase
+          .from("fraud_alerts")
+          .insert(row)
+          .select("*")
+          .single();
+        if (alertErr) {
+          fraudAlert = {
+            id: `demo-${Date.now()}`,
+            ...row,
+            voice_sent_at: null,
+            voice_acknowledged_at: null,
+            driver_response: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            _demo: true,
+            _dbError: alertErr.message,
+          };
+        } else {
+          fraudAlert = alertRow;
+        }
+      } catch (fraudErr: any) {
+        console.error("Fraud alert create failed:", fraudErr);
+        fraudAlert = {
+          id: `demo-${Date.now()}`,
+          plate: matchedVehicle?.plate || extractedPlate,
+          match_status: priceVerification.match_status,
+          reason: priceVerification.message,
+          voice_script: `Hi Driver, the manager is kindly requesting an urgent meeting with you within the next 24 hours. May I note your response?`,
+          voice_note_status: "pending",
+          status: "open",
+          driver_name: "Driver",
+          _demo: true,
+        };
+      }
     }
 
     if (matchedVehicle && fuelSlipDetected) {
@@ -936,6 +1176,7 @@ Rules:
       researched_avg_l_per_100km: researchedAvg,
       isFuelSlip: fuelSlipDetected,
       priceVerification,
+      fraudAlert,
       matchInfo: {
         normalizedPlate: normalizePlate(extractedPlate),
         corePlate: plateCore(extractedPlate),

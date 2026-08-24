@@ -112,3 +112,62 @@ export interface FuelImpact {
   efficiency_score: number; // relative
   impact_rating: "low" | "medium" | "high" | "critical";
 }
+
+
+export type VoiceNoteStatus = "pending" | "sent" | "delivered" | "acknowledged" | "failed";
+export type FraudAlertStatus = "open" | "meeting_scheduled" | "resolved" | "dismissed";
+
+export interface FraudAlert {
+  id: string;
+  vehicle_id: string | null;
+  driver_id: string | null;
+  document_scan_id: string | null;
+  fuel_transaction_id: string | null;
+  plate: string | null;
+  driver_name: string | null;
+  driver_phone: string | null;
+  match_status: "under_liters" | "over_liters" | string;
+  slip_liters: number | null;
+  expected_liters: number | null;
+  cost_zar: number | null;
+  researched_price_per_litre: number | null;
+  liters_delta: number | null;
+  liters_delta_pct: number | null;
+  reason: string | null;
+  voice_script: string | null;
+  voice_note_status: VoiceNoteStatus;
+  voice_sent_at: string | null;
+  voice_acknowledged_at: string | null;
+  driver_response: string | null;
+  status: FraudAlertStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+
+export type FraudFlagStatus = "open" | "voice_sent" | "acknowledged" | "resolved" | "dismissed";
+
+export interface FraudFlag {
+  id: string;
+  vehicle_id: string | null;
+  driver_id: string | null;
+  fuel_transaction_id: string | null;
+  document_scan_id: string | null;
+  plate: string | null;
+  reason: string;
+  match_status: string | null;
+  slip_liters: number | null;
+  expected_liters: number | null;
+  cost_zar: number | null;
+  researched_price_per_litre: number | null;
+  liters_delta: number | null;
+  severity: "low" | "medium" | "high" | "critical";
+  status: FraudFlagStatus;
+  voice_note_script: string | null;
+  voice_note_sent_at: string | null;
+  driver_acknowledged_at: string | null;
+  driver_response: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}

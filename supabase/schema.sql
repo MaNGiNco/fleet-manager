@@ -128,3 +128,67 @@ CREATE TABLE IF NOT EXISTS company_compliance (
 INSERT INTO company_compliance (coida_expiry, company_name, notes)
 SELECT '2026-09-15'::date, 'Fleet Solutions (Pty) Ltd', 'Company-wide COIDA registration'
 WHERE NOT EXISTS (SELECT 1 FROM company_compliance LIMIT 1);
+
+
+-- Fraud flags when fuel slip litres/spend do not match researched prices
+CREATE TABLE IF NOT EXISTS fraud_alerts (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  vehicle_id UUID REFERENCES vehicles(id) ON DELETE SET NULL,
+  driver_id UUID REFERENCES drivers(id) ON DELETE SET NULL,
+  document_scan_id UUID REFERENCES document_scans(id) ON DELETE SET NULL,
+  fuel_transaction_id UUID REFERENCES fuel_transactions(id) ON DELETE SET NULL,
+  plate TEXT,
+  driver_name TEXT,
+  driver_phone TEXT,
+  match_status TEXT, -- under_liters | over_liters
+  slip_liters NUMERIC(10,2),
+  expected_liters NUMERIC(10,2),
+  cost_zar NUMERIC(12,2),
+  researched_price_per_litre NUMERIC(8,2),
+  liters_delta NUMERIC(10,2),
+  liters_delta_pct NUMERIC(8,2),
+  reason TEXT,
+  voice_script TEXT,
+  voice_note_status TEXT DEFAULT 'pending'
+    CHECK (voice_note_status IN ('pending', 'sent', 'delivered', 'acknowledged', 'failed')),
+  voice_sent_at TIMESTAMPTZ,
+  voice_acknowledged_at TIMESTAMPTZ,
+  driver_response TEXT,
+  status TEXT DEFAULT 'open' CHECK (status IN ('open', 'meeting_scheduled', 'resolved', 'dismissed')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_fraud_vehicle ON fraud_alerts(vehicle_id);
+CREATE INDEX IF NOT EXISTS idx_fraud_status ON fraud_alerts(status);
+CREATE INDEX IF NOT EXISTS idx_fraud_voice ON fraud_alerts(voice_note_status);
+
+-- Fraud flags from fuel slip price/litre mismatches
+CREATE TABLE IF NOT EXISTS fraud_flags (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  vehicle_id UUID REFERENCES vehicles(id) ON DELETE SET NULL,
+  driver_id UUID REFERENCES drivers(id) ON DELETE SET NULL,
+  fuel_transaction_id UUID REFERENCES fuel_transactions(id) ON DELETE SET NULL,
+  document_scan_id UUID REFERENCES document_scans(id) ON DELETE SET NULL,
+  plate TEXT,
+  reason TEXT NOT NULL,
+  match_status TEXT,
+  slip_liters NUMERIC(10,2),
+  expected_liters NUMERIC(10,2),
+  cost_zar NUMERIC(12,2),
+  researched_price_per_litre NUMERIC(8,2),
+  liters_delta NUMERIC(10,2),
+  severity TEXT DEFAULT 'medium' CHECK (severity IN ('low', 'medium', 'high', 'critical')),
+  status TEXT DEFAULT 'open' CHECK (status IN ('open', 'voice_sent', 'acknowledged', 'resolved', 'dismissed')),
+  voice_note_script TEXT,
+  voice_note_sent_at TIMESTAMPTZ,
+  driver_acknowledged_at TIMESTAMPTZ,
+  driver_response TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_fraud_vehicle ON fraud_flags(vehicle_id);
+CREATE INDEX IF NOT EXISTS idx_fraud_status ON fraud_flags(status);
+CREATE INDEX IF NOT EXISTS idx_fraud_driver ON fraud_flags(driver_id);

@@ -21,6 +21,17 @@ interface ScanResult {
     liters_delta_pct: number | null;
     match_status: "match" | "under_liters" | "over_liters" | "insufficient_data";
     message: string;
+    fraud_flagged?: boolean;
+    fraud_flag_id?: string | null;
+    severity?: string;
+    voice_note?: {
+      script: string;
+      driver_name: string;
+      driver_id: string | null;
+      driver_phone: string | null;
+      voice: string;
+      status: string;
+    };
     price_board?: {
       petrol_93: number;
       petrol_95: number;
@@ -38,6 +49,95 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [fraudActionMsg, setFraudActionMsg] = useState<string | null>(null);
+  const [fraudBusy, setFraudBusy] = useState(false);
+  const [voiceAcked, setVoiceAcked] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const speakScript = (script: string) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(script);
+    u.rate = 0.92;
+    u.pitch = 1.05;
+    u.lang = "en-ZA";
+    const voices = window.speechSynthesis.getVoices();
+    const female =
+      voices.find((v) => /female|woman|zira|samantha|karen|moira|tessa|google uk english female/i.test(v.name)) ||
+      voices.find((v) => v.lang.startsWith("en") && /female/i.test(v.name)) ||
+      voices.find((v) => v.lang.startsWith("en"));
+    if (female) u.voice = female;
+    window.speechSynthesis.speak(u);
+  };
+
+  const sendVoiceNote = async () => {
+    const pv = result?.priceVerification;
+    if (!pv?.fraud_flag_id || !pv.voice_note) return;
+    setFraudBusy(true);
+    setFraudActionMsg(null);
+    try {
+      // Play calm female sample + browser TTS with driver name
+      const audio = new Audio("/voice-notes/fraud-meeting-request-sample.mp3");
+      audioRef.current = audio;
+      try {
+        await audio.play();
+      } catch {
+        speakScript(pv.voice_note.script);
+      }
+      // Prefer named script via TTS after a short delay so sample + personalised both work
+      window.setTimeout(() => speakScript(pv.voice_note!.script), 400);
+
+      const res = await fetch("/api/fraud", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send_voice", fraudFlagId: pv.fraud_flag_id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to mark voice sent");
+      setFraudActionMsg(
+        `Voice note sent to ${pv.voice_note.driver_name}` +
+          (pv.voice_note.driver_phone ? ` (${pv.voice_note.driver_phone})` : "") +
+          ". Awaiting driver confirmation."
+      );
+      setResult({
+        ...result!,
+        priceVerification: {
+          ...pv,
+          voice_note: { ...pv.voice_note, status: "voice_sent" },
+        },
+      });
+    } catch (e: any) {
+      setFraudActionMsg(e.message || "Could not send voice note");
+    } finally {
+      setFraudBusy(false);
+    }
+  };
+
+  const confirmDriverAck = async () => {
+    const pv = result?.priceVerification;
+    if (!pv?.fraud_flag_id) return;
+    setFraudBusy(true);
+    try {
+      const res = await fetch("/api/fraud", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "acknowledge",
+          fraudFlagId: pv.fraud_flag_id,
+          response: "Driver confirmed receipt of the meeting request voice note",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Ack failed");
+      setVoiceAcked(true);
+      setFraudActionMsg("Driver confirmed they received the voice note.");
+    } catch (e: any) {
+      setFraudActionMsg(e.message || "Could not record acknowledgment");
+    } finally {
+      setFraudBusy(false);
+    }
+  };
+
 
   const handleFile = async (file: File) => {
     setError(null);
@@ -282,6 +382,66 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
               )}
             </div>
           )}
+
+          {isFuel && result.priceVerification?.fraud_flagged && (
+            <div className="mt-3 p-3 rounded-lg border border-red-600/60 bg-red-950/40 space-y-2 text-xs">
+              <p className="font-semibold text-red-300 flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4" />
+                Fraud flag — litres vs spend mismatch
+                {result.priceVerification.severity && (
+                  <span className="ml-auto uppercase tracking-wide text-[10px] px-1.5 py-0.5 rounded bg-red-800/80">
+                    {result.priceVerification.severity}
+                  </span>
+                )}
+              </p>
+              <p className="text-red-200/90">{result.priceVerification.message}</p>
+              {result.priceVerification.voice_note && (
+                <div className="bg-slate-900/60 rounded-lg p-2.5 space-y-2 border border-slate-700">
+                  <p className="text-slate-300 font-medium">Voice note to driver</p>
+                  <p className="text-slate-400 italic">
+                    &ldquo;{result.priceVerification.voice_note.script}&rdquo;
+                  </p>
+                  <p className="text-[10px] text-slate-500">
+                    Voice: Celeste — confident, calm, relaxed female · Driver:{" "}
+                    {result.priceVerification.voice_note.driver_name}
+                    {result.priceVerification.voice_note.driver_phone
+                      ? ` · ${result.priceVerification.voice_note.driver_phone}`
+                      : ""}
+                  </p>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={fraudBusy || result.priceVerification.voice_note.status === "voice_sent"}
+                      onClick={sendVoiceNote}
+                      className="min-h-[40px] px-3 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-medium"
+                    >
+                      {result.priceVerification.voice_note.status === "voice_sent"
+                        ? "Voice note sent"
+                        : fraudBusy
+                        ? "Sending…"
+                        : "Send voice note to driver"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        fraudBusy ||
+                        voiceAcked ||
+                        result.priceVerification.voice_note.status !== "voice_sent"
+                      }
+                      onClick={confirmDriverAck}
+                      className="min-h-[40px] px-3 rounded-lg bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white text-xs font-medium"
+                    >
+                      {voiceAcked ? "Driver confirmed receipt" : "Confirm driver received note"}
+                    </button>
+                  </div>
+                  {fraudActionMsg && (
+                    <p className="text-cyan-300 text-[11px] pt-1">{fraudActionMsg}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {result.matchedVehicle ? (
             <div className="mt-3 p-3 bg-emerald-900/40 border border-emerald-700 rounded-lg">
               <p className="text-emerald-300 font-medium">Matched Vehicle</p>
@@ -291,7 +451,11 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
               </p>
               <p className="text-xs text-slate-400 mt-1">
                 {isFuel
-                  ? "Fuel level, refuel log and bulk reserve updated where data was readable."
+                  ? `Fuel level${
+                      result.matchedVehicle.current_fuel_level_pct != null
+                        ? ` now ${result.matchedVehicle.current_fuel_level_pct}%`
+                        : ""
+                    }, refuel log and bulk reserve updated.`
                   : "Certificate dates updated where applicable."}
               </p>
             </div>
