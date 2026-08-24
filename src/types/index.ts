@@ -16,6 +16,8 @@ export interface Vehicle {
   status: VehicleStatus;
   estimated_daily_income: number; // for risk/income exposure
   fuel_efficiency_l_per_100km: number | null;
+  current_fuel_level_pct: number | null; // last known tank % from fuel slip
+  last_refuel_date: string | null;
   assigned_driver_id: string | null;
   notes: string | null;
   created_at: string;
@@ -38,8 +40,33 @@ export interface FuelTransaction {
   cost: number;
   transaction_type: "bulk_purchase" | "vehicle_refuel" | "adjustment";
   odometer_at_refuel: number | null;
+  fuel_level_after_pct: number | null; // 0-100 tank % after fill if known
+  station_name: string | null;
   notes: string | null;
   created_at: string;
+}
+
+/** AI-derived fuel analytics for a single vehicle (shown in plate detail sheet) */
+export interface FuelAnalytics {
+  vehicle_id: string;
+  plate: string;
+  make: string;
+  model: string;
+  year: number;
+  current_fuel_level_pct: number | null;
+  last_refuel_liters: number | null;
+  last_refuel_date: string | null;
+  refuel_count: number;
+  total_liters_refueled: number;
+  avg_liters_per_refuel: number | null;
+  days_between_refuels_avg: number | null;
+  researched_avg_l_per_100km: number | null; // from OpenRouter research on make/model
+  fleet_recorded_efficiency: number | null;
+  consumption_vs_expected: "better" | "inline" | "worse" | "unknown";
+  consumption_delta_pct: number | null; // % worse/better than researched
+  impact_on_reserve: "low" | "medium" | "high" | "critical";
+  summary: string;
+  recommendations: string[];
 }
 
 export interface DocumentScan {

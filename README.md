@@ -8,7 +8,8 @@ Next.js fleet management dashboard for reducing downtime, tracking 5000 km servi
 - COIDA & Roadworthy expiry tracking with 20-day advance alerts
 - Downtime view + suggested vehicle/driver shuffle candidates
 - Bulk fuel reserve impact rating per vehicle
-- Document scanner (phone photo → one OpenRouter vision call → extract type/plate/ID/holder/dates → match vehicle)
+- Document & fuel slip scanner (phone photo → OpenRouter vision → certificates OR fuel slips: litres, cost, odometer, tank %, plate → match vehicle, log refuel, update reserve)
+- Per-vehicle AI fuel analytics (researched L/100km for make/model vs fleet recorded efficiency, refuel frequency, reserve impact) shown when selecting a number plate
 - Risk ranking (service + certificates + income exposure)
 - AI Analytics section (OpenRouter) with actionable recommendations
 
@@ -85,8 +86,9 @@ Without Supabase credentials the app uses realistic demo data so you can explore
 src/
   app/
     page.tsx              # Main dashboard
-    api/scan/route.ts     # Vision document extraction
-    api/analytics/route.ts# AI recommendations
+    api/scan/route.ts           # Vision document + fuel slip extraction
+    api/fuel-analytics/route.ts  # Per-vehicle fuel AI comparison
+    api/analytics/route.ts       # Fleet-wide AI recommendations
   components/
     DocumentScanner.tsx
     VehicleCard.tsx

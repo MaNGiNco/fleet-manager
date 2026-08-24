@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Camera, Upload, Loader2, CheckCircle, AlertCircle } from "lucide-react";
+import { Camera, Upload, Loader2, CheckCircle, AlertCircle, Fuel } from "lucide-react";
 
 interface ScanResult {
   extracted: any;
   matchedVehicle: any;
   scanId?: string;
+  isFuelSlip?: boolean;
+  researched_avg_l_per_100km?: number | null;
 }
 
 export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => void }) {
@@ -49,14 +51,17 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
     }
   };
 
+  const isFuel = result?.isFuelSlip || String(result?.extracted?.document_type || "").toLowerCase().includes("fuel");
+
   return (
     <div className="bg-slate-900 text-slate-100 border border-slate-700 rounded-xl p-5 space-y-4">
       <h3 className="text-lg font-semibold flex items-center gap-2 text-slate-100">
         <Camera className="w-5 h-5 text-cyan-400" />
-        Document Scanner (COIDA / Roadworthy)
+        Document &amp; Fuel Slip Scanner
       </h3>
       <p className="text-sm text-slate-400">
-        Take a photo or upload a certificate. AI extracts details and matches the vehicle.
+        Photo of COIDA / Roadworthy certificates <strong>or fuel slips</strong>. AI extracts plate,
+        litres, cost, odometer and tank level, then updates the matched vehicle.
       </p>
 
       <div className="flex flex-wrap gap-3">
@@ -116,6 +121,11 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
           <div className="flex items-center gap-2 text-emerald-400 font-medium">
             <CheckCircle className="w-4 h-4" />
             Extraction complete
+            {isFuel && (
+              <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-cyan-900/60 border border-cyan-700 text-cyan-300">
+                <Fuel className="w-3 h-3" /> Fuel slip
+              </span>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-2 text-slate-300">
             <span>Type:</span>
@@ -124,14 +134,52 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
             <span className="font-mono">{result.extracted?.vehicle_plate || "—"}</span>
             <span>Vehicle ID:</span>
             <span className="font-mono">{result.extracted?.vehicle_id || "—"}</span>
-            <span>Holder:</span>
-            <span>{result.extracted?.holder_name || "—"}</span>
-            <span>Issue:</span>
-            <span>{result.extracted?.issue_date || "—"}</span>
-            <span>Expiry:</span>
-            <span className={result.extracted?.expiry_date ? "text-amber-300" : ""}>
-              {result.extracted?.expiry_date || "—"}
-            </span>
+            {!isFuel && (
+              <>
+                <span>Holder:</span>
+                <span>{result.extracted?.holder_name || "—"}</span>
+                <span>Issue:</span>
+                <span>{result.extracted?.issue_date || "—"}</span>
+                <span>Expiry:</span>
+                <span className={result.extracted?.expiry_date ? "text-amber-300" : ""}>
+                  {result.extracted?.expiry_date || "—"}
+                </span>
+              </>
+            )}
+            {isFuel && (
+              <>
+                <span>Litres:</span>
+                <span className="font-mono text-cyan-300">
+                  {result.extracted?.liters != null ? `${result.extracted.liters} L` : "—"}
+                </span>
+                <span>Cost:</span>
+                <span className="font-mono">
+                  {result.extracted?.cost_zar != null
+                    ? `R ${Number(result.extracted.cost_zar).toLocaleString()}`
+                    : "—"}
+                </span>
+                <span>Odometer:</span>
+                <span className="font-mono">{result.extracted?.odometer ?? "—"}</span>
+                <span>Tank after fill:</span>
+                <span className="font-mono text-cyan-300">
+                  {result.extracted?.fuel_level_pct != null
+                    ? `${result.extracted.fuel_level_pct}%`
+                    : "—"}
+                </span>
+                <span>Station:</span>
+                <span>{result.extracted?.station_name || "—"}</span>
+                <span>Fuel type:</span>
+                <span className="capitalize">{result.extracted?.fuel_type || "—"}</span>
+                {result.researched_avg_l_per_100km != null && (
+                  <>
+                    <span>AI model avg:</span>
+                    <span className="font-mono text-emerald-300">
+                      {result.researched_avg_l_per_100km} L/100km
+                    </span>
+                  </>
+                )}
+              </>
+            )}
           </div>
           {result.matchedVehicle ? (
             <div className="mt-3 p-3 bg-emerald-900/40 border border-emerald-700 rounded-lg">
@@ -141,7 +189,9 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
                 {result.matchedVehicle.make} {result.matchedVehicle.model}
               </p>
               <p className="text-xs text-slate-400 mt-1">
-                Certificate dates updated where applicable.
+                {isFuel
+                  ? "Fuel level, refuel log and bulk reserve updated where data was readable."
+                  : "Certificate dates updated where applicable."}
               </p>
             </div>
           ) : (

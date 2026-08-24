@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS vehicles (
   status TEXT DEFAULT 'active' CHECK (status IN ('active', 'maintenance', 'accident', 'inactive')),
   estimated_daily_income NUMERIC(10,2) DEFAULT 0,
   fuel_efficiency_l_per_100km NUMERIC(6,2),
+  current_fuel_level_pct NUMERIC(5,1), -- last known tank % from fuel slip scan
+  last_refuel_date TIMESTAMPTZ,
   assigned_driver_id UUID,
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -44,9 +46,17 @@ CREATE TABLE IF NOT EXISTS fuel_transactions (
   cost NUMERIC(12,2),
   transaction_type TEXT NOT NULL CHECK (transaction_type IN ('bulk_purchase', 'vehicle_refuel', 'adjustment')),
   odometer_at_refuel NUMERIC(12,1),
+  fuel_level_after_pct NUMERIC(5,1),
+  station_name TEXT,
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Upgrade helpers for existing DBs:
+-- ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS current_fuel_level_pct NUMERIC(5,1);
+-- ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS last_refuel_date TIMESTAMPTZ;
+-- ALTER TABLE fuel_transactions ADD COLUMN IF NOT EXISTS fuel_level_after_pct NUMERIC(5,1);
+-- ALTER TABLE fuel_transactions ADD COLUMN IF NOT EXISTS station_name TEXT;
 
 CREATE TABLE IF NOT EXISTS document_scans (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

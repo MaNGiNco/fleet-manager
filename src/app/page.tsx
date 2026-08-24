@@ -42,6 +42,8 @@ const DEMO_VEHICLES: Vehicle[] = [
     status: "active",
     estimated_daily_income: 1850,
     fuel_efficiency_l_per_100km: 9.2,
+    current_fuel_level_pct: 62,
+    last_refuel_date: "2026-08-18",
     assigned_driver_id: null,
     notes: null,
     created_at: new Date().toISOString(),
@@ -63,6 +65,8 @@ const DEMO_VEHICLES: Vehicle[] = [
     status: "maintenance",
     estimated_daily_income: 2100,
     fuel_efficiency_l_per_100km: 10.5,
+    current_fuel_level_pct: 40,
+    last_refuel_date: "2026-08-10",
     assigned_driver_id: null,
     notes: "Clutch replacement",
     created_at: new Date().toISOString(),
@@ -84,6 +88,8 @@ const DEMO_VEHICLES: Vehicle[] = [
     status: "active",
     estimated_daily_income: 1950,
     fuel_efficiency_l_per_100km: 8.8,
+    current_fuel_level_pct: 75,
+    last_refuel_date: "2026-08-20",
     assigned_driver_id: null,
     notes: null,
     created_at: new Date().toISOString(),
@@ -105,6 +111,8 @@ const DEMO_VEHICLES: Vehicle[] = [
     status: "accident",
     estimated_daily_income: 3200,
     fuel_efficiency_l_per_100km: 12.1,
+    current_fuel_level_pct: 28,
+    last_refuel_date: "2026-08-12",
     assigned_driver_id: null,
     notes: "Front end damage – insurance claim open",
     created_at: new Date().toISOString(),
@@ -126,6 +134,8 @@ const DEMO_VEHICLES: Vehicle[] = [
     status: "active",
     estimated_daily_income: 1100,
     fuel_efficiency_l_per_100km: 7.5,
+    current_fuel_level_pct: 90,
+    last_refuel_date: "2026-08-22",
     assigned_driver_id: null,
     notes: null,
     created_at: new Date().toISOString(),
@@ -142,6 +152,8 @@ export default function DashboardPage() {
   const [selected, setSelected] = useState<Vehicle | null>(null);
   const [analytics, setAnalytics] = useState<any>(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [fuelAnalytics, setFuelAnalytics] = useState<any>(null);
+  const [loadingFuelAnalytics, setLoadingFuelAnalytics] = useState(false);
   const [fuelReserve, setFuelReserve] = useState(8500);
   const [companyCoidaExpiry, setCompanyCoidaExpiry] = useState<string | null>("2026-09-15");
   const [usingDemo, setUsingDemo] = useState(false);
@@ -159,9 +171,40 @@ export default function DashboardPage() {
     setSheetClosing(true);
     window.setTimeout(() => {
       setSelected(null);
+      setFuelAnalytics(null);
       setSheetClosing(false);
     }, 240);
   };
+
+  // Load AI fuel analytics when a vehicle is selected
+  useEffect(() => {
+    if (!selected?.id) {
+      setFuelAnalytics(null);
+      return;
+    }
+    let cancelled = false;
+    const run = async () => {
+      setLoadingFuelAnalytics(true);
+      try {
+        const res = await fetch("/api/fuel-analytics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vehicleId: selected.id }),
+        });
+        const data = await res.json();
+        if (!cancelled && data?.analytics) setFuelAnalytics(data.analytics);
+        else if (!cancelled) setFuelAnalytics(null);
+      } catch {
+        if (!cancelled) setFuelAnalytics(null);
+      } finally {
+        if (!cancelled) setLoadingFuelAnalytics(false);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id]);
 
   const scrollToSection = (id: string) => {
     const el = document.getElementById(id);
@@ -995,7 +1038,7 @@ export default function DashboardPage() {
               />
               {/* Bottom sheet */}
               <div
-                className={`sheet-panel fixed bottom-0 left-0 right-0 z-50 ${theme.popup} border-t rounded-t-2xl p-5 shadow-2xl max-h-[55vh] overflow-y-auto pb-8 ${
+                className={`sheet-panel fixed bottom-0 left-0 right-0 z-50 ${theme.popup} border-t rounded-t-2xl p-5 shadow-2xl max-h-[75vh] overflow-y-auto pb-8 ${
                   sheetClosing ? "sheet-closing" : ""
                 }`}
                 role="dialog"
@@ -1020,6 +1063,10 @@ export default function DashboardPage() {
                   </button>
                 </div>
                 <div className={`mt-4 space-y-2 text-sm border-t ${theme.tableBorder} pt-4`}>
+                  <p>
+                    <span className={theme.cardMuted}>Registration / ID: </span>
+                    {selected.vehicle_id} · {selected.make} {selected.model} ({selected.year})
+                  </p>
                   <p>
                     <span className={theme.cardMuted}>Driver: </span>
                     {assignedDriver?.name || "Unassigned"}
@@ -1048,7 +1095,94 @@ export default function DashboardPage() {
                       {Math.round(kmLeft).toLocaleString()} km
                     </span>
                   </p>
+                  {(selected.current_fuel_level_pct != null || fuelAnalytics?.current_fuel_level_pct != null) && (
+                    <p>
+                      <span className={theme.cardMuted}>Current fuel level: </span>
+                      <span className="text-cyan-500 font-medium">
+                        {fuelAnalytics?.current_fuel_level_pct ?? selected.current_fuel_level_pct}%
+                      </span>
+                    </p>
+                  )}
                 </div>
+
+                <div className={`mt-4 rounded-xl border p-3 space-y-2 ${theme.tableBorder}`}>
+                  <div className="flex items-center gap-2">
+                    <Fuel className="w-4 h-4 text-cyan-500" />
+                    <p className="text-sm font-semibold">AI Fuel Analytics</p>
+                  </div>
+                  {loadingFuelAnalytics && (
+                    <div className="flex items-center gap-2 text-xs text-cyan-500">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Comparing refuel history vs model average…
+                    </div>
+                  )}
+                  {!loadingFuelAnalytics && fuelAnalytics && (
+                    <div className="space-y-2 text-xs">
+                      <p className={theme.cardMuted}>{fuelAnalytics.summary}</p>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                        <span className={theme.cardMuted}>Refuels logged</span>
+                        <span className="font-medium">{fuelAnalytics.refuel_count}</span>
+                        <span className={theme.cardMuted}>Total litres</span>
+                        <span className="font-medium">{fuelAnalytics.total_liters_refueled} L</span>
+                        <span className={theme.cardMuted}>Avg per fill</span>
+                        <span className="font-medium">
+                          {fuelAnalytics.avg_liters_per_refuel != null
+                            ? `${fuelAnalytics.avg_liters_per_refuel} L`
+                            : "—"}
+                        </span>
+                        <span className={theme.cardMuted}>Days between fills</span>
+                        <span className="font-medium">
+                          {fuelAnalytics.days_between_refuels_avg != null
+                            ? fuelAnalytics.days_between_refuels_avg
+                            : "—"}
+                        </span>
+                        <span className={theme.cardMuted}>AI model avg</span>
+                        <span className="font-medium text-cyan-500">
+                          {fuelAnalytics.researched_avg_l_per_100km != null
+                            ? `${fuelAnalytics.researched_avg_l_per_100km} L/100km`
+                            : "—"}
+                        </span>
+                        <span className={theme.cardMuted}>Fleet recorded</span>
+                        <span className="font-medium">
+                          {fuelAnalytics.fleet_recorded_efficiency != null
+                            ? `${fuelAnalytics.fleet_recorded_efficiency} L/100km`
+                            : "—"}
+                        </span>
+                        <span className={theme.cardMuted}>vs expected</span>
+                        <span
+                          className={`font-medium capitalize ${
+                            fuelAnalytics.consumption_vs_expected === "worse"
+                              ? "text-red-500"
+                              : fuelAnalytics.consumption_vs_expected === "better"
+                              ? "text-emerald-500"
+                              : ""
+                          }`}
+                        >
+                          {fuelAnalytics.consumption_vs_expected}
+                          {fuelAnalytics.consumption_delta_pct != null
+                            ? ` (${fuelAnalytics.consumption_delta_pct > 0 ? "+" : ""}${fuelAnalytics.consumption_delta_pct}%)`
+                            : ""}
+                        </span>
+                        <span className={theme.cardMuted}>Reserve impact</span>
+                        <span className="font-medium capitalize">{fuelAnalytics.impact_on_reserve}</span>
+                      </div>
+                      {Array.isArray(fuelAnalytics.recommendations) &&
+                        fuelAnalytics.recommendations.length > 0 && (
+                          <ul className="list-disc list-inside space-y-0.5 text-slate-400 pt-1">
+                            {fuelAnalytics.recommendations.map((r: string, i: number) => (
+                              <li key={i}>{r}</li>
+                            ))}
+                          </ul>
+                        )}
+                    </div>
+                  )}
+                  {!loadingFuelAnalytics && !fuelAnalytics && (
+                    <p className={`text-xs ${theme.cardMuted}`}>
+                      Scan fuel slips for this plate to unlock consumption trends and model comparison.
+                    </p>
+                  )}
+                </div>
+
                 <button
                   onClick={closeSheet}
                   className="mt-5 w-full min-h-[48px] rounded-xl bg-cyan-600 hover:bg-cyan-500 active:scale-[0.98] transition-transform text-white font-medium"

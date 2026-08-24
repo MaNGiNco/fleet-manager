@@ -4,6 +4,7 @@ import { createServerClient } from "@/lib/supabase";
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const VISION_MODEL = "openai/gpt-4o";
+const TEXT_MODEL = "openai/gpt-4o-mini";
 
 // ---------------------------------------------------------------------------
 // Plate normalization & fuzzy matching helpers
@@ -287,6 +288,60 @@ function validateScanInput(body: any): { ok: true; imageBase64: string; mimeType
   return { ok: true, imageBase64: pureBase64, mimeType: detectedMime };
 }
 
+function isFuelSlip(docType: string | null | undefined): boolean {
+  if (!docType) return false;
+  const t = String(docType).toUpperCase();
+  return (
+    t.includes("FUEL") ||
+    t.includes("PETROL") ||
+    t.includes("DIESEL") ||
+    t.includes("SLIP") ||
+    t.includes("RECEIPT") ||
+    t.includes("FORECOURT")
+  );
+}
+
+/** Research typical L/100km for make/model/year via OpenRouter text model */
+async function researchAvgConsumption(
+  make: string,
+  model: string,
+  year: number | null
+): Promise<number | null> {
+  if (!OPENROUTER_API_KEY) return null;
+  try {
+    const prompt = `What is the typical combined real-world fuel consumption in litres per 100 km for a ${year || ""} ${make} ${model} as used in South Africa (bakkie/pickup or commercial fleet context if applicable)? Reply with STRICT JSON only:
+{"avg_l_per_100km": number, "source_note": "brief"}
+Use a realistic number between 5 and 20. If unknown, still give your best estimate.`;
+
+    const res = await fetch(OPENROUTER_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "https://fleet-manager.vercel.app",
+        "X-Title": "Fleet Manager Fuel Research",
+      },
+      body: JSON.stringify({
+        model: TEXT_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 150,
+        temperature: 0.2,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content || "";
+    const match = content.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const parsed = JSON.parse(match[0]);
+    const n = Number(parsed.avg_l_per_100km);
+    if (Number.isFinite(n) && n > 3 && n < 30) return Math.round(n * 10) / 10;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // API route
 // ---------------------------------------------------------------------------
@@ -318,18 +373,30 @@ export async function POST(req: NextRequest) {
     const { imageBase64, mimeType } = validation;
 
     const prompt = `You are a document extraction specialist for South African fleet vehicles.
-Analyze this photo of a vehicle document (COIDA certificate, Roadworthy certificate, License Disc, or similar).
-Extract the following fields in STRICT JSON format only (no markdown, no explanation):
+Analyze this photo. It may be a vehicle certificate (COIDA, Roadworthy, License Disc) OR a fuel slip / petrol station receipt / diesel receipt.
+
+Extract STRICT JSON only (no markdown, no explanation):
 {
-  "document_type": "COIDA" | "Roadworthy" | "License Disc" | "Other" | "Unknown",
+  "document_type": "COIDA" | "Roadworthy" | "License Disc" | "Fuel Slip" | "Other" | "Unknown",
   "vehicle_plate": "string or null",
   "vehicle_id": "string or null (fleet internal ID if present, e.g. FLT-001)",
   "holder_name": "string or null (company or person name)",
   "issue_date": "YYYY-MM-DD or null",
-  "expiry_date": "YYYY-MM-DD or null"
+  "expiry_date": "YYYY-MM-DD or null",
+  "liters": number or null,
+  "cost_zar": number or null,
+  "odometer": number or null,
+  "fuel_level_pct": number or null,
+  "station_name": "string or null",
+  "fuel_type": "diesel" | "petrol" | null,
+  "transaction_date": "YYYY-MM-DD or null"
 }
-If a field cannot be read confidently, use null.
-South African plates may appear as "WC 333-222", "333-222 WC", "CA 123-456", "GP 12 AB GP", etc. Extract the plate text as written, even if slightly unclear.`;
+
+Rules:
+- If this is a fuel slip / receipt, set document_type to "Fuel Slip" and fill liters, cost_zar, odometer, fuel_level_pct (0-100 if shown), station_name, fuel_type, transaction_date.
+- fuel_level_pct is the tank percentage AFTER fill if printed; otherwise null.
+- South African plates may appear as "WC 333-222", "333-222 WC", "CA 123-456", "GP 12 AB GP", etc. Extract the plate text as written.
+- If a field cannot be read confidently, use null.`;
 
     let visionResponse: Response;
     try {
@@ -357,7 +424,7 @@ South African plates may appear as "WC 333-222", "333-222 WC", "CA 123-456", "GP
               ],
             },
           ],
-          max_tokens: 500,
+          max_tokens: 700,
           temperature: 0.1,
         }),
       });
@@ -444,22 +511,21 @@ South African plates may appear as "WC 333-222", "333-222 WC", "CA 123-456", "GP
 
       if (fetchError) {
         console.error("Supabase vehicles fetch error:", fetchError);
-        // Still return extraction; matching failed
       } else if (allVehicles && allVehicles.length > 0) {
         const result = findBestVehicleMatch(allVehicles, extractedPlate, vId);
         if (result) {
           matchedVehicle = result.vehicle;
           matchMeta = { score: result.score, method: result.method };
 
-          // Update expiry dates when confident match + valid dates
+          const docType = String(extracted.document_type || "").toUpperCase();
+
+          // Certificate path (existing behaviour)
           if (
             extracted.expiry_date &&
             typeof extracted.expiry_date === "string" &&
             extracted.document_type
           ) {
-            const docType = String(extracted.document_type).toUpperCase();
             if (docType.includes("COIDA")) {
-              // Company-level — not stored on the vehicle
               const { data: existing } = await supabase
                 .from("company_compliance")
                 .select("id")
@@ -491,11 +557,86 @@ South African plates may appear as "WC 333-222", "333-222 WC", "CA 123-456", "GP
               }
             }
           }
+
+          // Fuel slip path — update fuel level, odometer, create transaction, deduct reserve
+          if (matchedVehicle && isFuelSlip(extracted.document_type)) {
+            const liters =
+              typeof extracted.liters === "number"
+                ? extracted.liters
+                : Number(extracted.liters) || null;
+            const cost =
+              typeof extracted.cost_zar === "number"
+                ? extracted.cost_zar
+                : Number(extracted.cost_zar) || null;
+            const odo =
+              typeof extracted.odometer === "number"
+                ? extracted.odometer
+                : Number(extracted.odometer) || null;
+            let levelPct =
+              typeof extracted.fuel_level_pct === "number"
+                ? extracted.fuel_level_pct
+                : Number(extracted.fuel_level_pct);
+            if (!Number.isFinite(levelPct) || levelPct < 0 || levelPct > 100) {
+              levelPct = null;
+            }
+
+            const vehicleUpdate: Record<string, unknown> = {
+              last_refuel_date: new Date().toISOString(),
+            };
+            if (levelPct !== null) vehicleUpdate.current_fuel_level_pct = levelPct;
+            if (odo !== null && odo > 0) {
+              // Only advance odometer if higher than current
+              if (!matchedVehicle.current_odometer || odo >= Number(matchedVehicle.current_odometer)) {
+                vehicleUpdate.current_odometer = odo;
+              }
+            }
+
+            await supabase.from("vehicles").update(vehicleUpdate).eq("id", matchedVehicle.id);
+
+            // Refresh matched vehicle snapshot for response
+            matchedVehicle = { ...matchedVehicle, ...vehicleUpdate };
+
+            if (liters && liters > 0) {
+              await supabase.from("fuel_transactions").insert({
+                vehicle_id: matchedVehicle.id,
+                amount_liters: liters,
+                cost: cost,
+                transaction_type: "vehicle_refuel",
+                odometer_at_refuel: odo,
+                fuel_level_after_pct: levelPct,
+                station_name:
+                  typeof extracted.station_name === "string" ? extracted.station_name : null,
+                notes: extracted.fuel_type
+                  ? `Fuel type: ${extracted.fuel_type}`
+                  : "From fuel slip scan",
+              });
+
+              // Deduct from bulk reserve (best-effort)
+              try {
+                const { data: reserve } = await supabase
+                  .from("fuel_reserve")
+                  .select("id, current_liters")
+                  .limit(1)
+                  .maybeSingle();
+                if (reserve?.id != null && reserve.current_liters != null) {
+                  const next = Math.max(0, Number(reserve.current_liters) - liters);
+                  await supabase
+                    .from("fuel_reserve")
+                    .update({
+                      current_liters: next,
+                      last_updated: new Date().toISOString(),
+                    })
+                    .eq("id", reserve.id);
+                }
+              } catch (reserveErr) {
+                console.error("Fuel reserve update failed:", reserveErr);
+              }
+            }
+          }
         }
       }
     } catch (dbErr: any) {
       console.error("Database matching error:", dbErr);
-      // Non-fatal: still return extraction results
     }
 
     // Store scan record (best-effort)
@@ -525,11 +666,43 @@ South African plates may appear as "WC 333-222", "333-222 WC", "CA 123-456", "GP
       console.error("Scan insert exception:", insertCatch);
     }
 
+    // Optional: research avg consumption when fuel slip matched a vehicle
+    let researchedAvg: number | null = null;
+    if (matchedVehicle && isFuelSlip(extracted.document_type)) {
+      researchedAvg = await researchAvgConsumption(
+        matchedVehicle.make || "",
+        matchedVehicle.model || "",
+        matchedVehicle.year || null
+      );
+      // Persist efficiency if we got a solid number and vehicle has none
+      if (
+        researchedAvg != null &&
+        matchedVehicle.id &&
+        (matchedVehicle.fuel_efficiency_l_per_100km == null ||
+          matchedVehicle.fuel_efficiency_l_per_100km === 0)
+      ) {
+        try {
+          await supabase
+            .from("vehicles")
+            .update({ fuel_efficiency_l_per_100km: researchedAvg })
+            .eq("id", matchedVehicle.id);
+          matchedVehicle = {
+            ...matchedVehicle,
+            fuel_efficiency_l_per_100km: researchedAvg,
+          };
+        } catch {
+          /* non-fatal */
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       extracted,
       matchedVehicle,
       scanId,
+      researched_avg_l_per_100km: researchedAvg,
+      isFuelSlip: isFuelSlip(extracted.document_type),
       matchInfo: {
         normalizedPlate: normalizePlate(extractedPlate),
         corePlate: plateCore(extractedPlate),
