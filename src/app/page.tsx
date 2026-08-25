@@ -151,6 +151,8 @@ export default function DashboardPage() {
   const [risks, setRisks] = useState<RiskScore[]>([]);
   const [fuelImpacts, setFuelImpacts] = useState<FuelImpact[]>([]);
   const [selected, setSelected] = useState<Vehicle | null>(null);
+  /** Where the vehicle was opened from — controls which AI panel is shown */
+  const [selectedContext, setSelectedContext] = useState<"risk" | "fuel" | "other" | null>(null);
   const [analytics, setAnalytics] = useState<any>(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [fuelAnalytics, setFuelAnalytics] = useState<any>(null);
@@ -174,59 +176,65 @@ export default function DashboardPage() {
     setSheetClosing(true);
     window.setTimeout(() => {
       setSelected(null);
+      setSelectedContext(null);
       setFuelAnalytics(null);
       setServiceAnalytics(null);
       setSheetClosing(false);
     }, 240);
   };
 
-  // Load AI fuel + service analytics when a vehicle is selected
+  // Load only the analytics relevant to where the vehicle was opened from
   useEffect(() => {
-    if (!selected?.id) {
+    if (!selected?.id || !selectedContext) {
       setFuelAnalytics(null);
       setServiceAnalytics(null);
       return;
     }
     let cancelled = false;
     const run = async () => {
-      setLoadingFuelAnalytics(true);
-      setLoadingServiceAnalytics(true);
-      try {
-        const [fuelRes, svcRes] = await Promise.all([
-          fetch("/api/fuel-analytics", {
+      if (selectedContext === "fuel") {
+        setServiceAnalytics(null);
+        setLoadingFuelAnalytics(true);
+        try {
+          const res = await fetch("/api/fuel-analytics", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ vehicleId: selected.id }),
-          }),
-          fetch("/api/service-analytics", {
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!cancelled) setFuelAnalytics(data?.analytics || null);
+        } catch {
+          if (!cancelled) setFuelAnalytics(null);
+        } finally {
+          if (!cancelled) setLoadingFuelAnalytics(false);
+        }
+      } else if (selectedContext === "risk") {
+        setFuelAnalytics(null);
+        setLoadingServiceAnalytics(true);
+        try {
+          const res = await fetch("/api/service-analytics", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ vehicleId: selected.id }),
-          }),
-        ]);
-        const fuelData = await fuelRes.json().catch(() => ({}));
-        const svcData = await svcRes.json().catch(() => ({}));
-        if (!cancelled) {
-          setFuelAnalytics(fuelData?.analytics || null);
-          setServiceAnalytics(svcData?.analytics || null);
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!cancelled) setServiceAnalytics(data?.analytics || null);
+        } catch {
+          if (!cancelled) setServiceAnalytics(null);
+        } finally {
+          if (!cancelled) setLoadingServiceAnalytics(false);
         }
-      } catch {
-        if (!cancelled) {
-          setFuelAnalytics(null);
-          setServiceAnalytics(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingFuelAnalytics(false);
-          setLoadingServiceAnalytics(false);
-        }
+      } else {
+        // other (e.g. scan match) — no AI analytics panels
+        setFuelAnalytics(null);
+        setServiceAnalytics(null);
       }
     };
     run();
     return () => {
       cancelled = true;
     };
-  }, [selected?.id]);
+  }, [selected?.id, selectedContext]);
 
   const scrollToSection = (id: string) => {
     const el = document.getElementById(id);
@@ -572,7 +580,7 @@ export default function DashboardPage() {
                   <VehicleCard
                     vehicle={v}
                     riskScore={r.total_risk}
-                    onSelect={setSelected}
+                    onSelect={(v) => { setSelectedContext("risk"); setSelected(v); }}
                     highlighted={selected?.id === v.id}
                     lightMode={lightMode}
                   />
@@ -664,18 +672,12 @@ export default function DashboardPage() {
                   onClick={() => {
                     const v = vehicles.find((x) => x.id === f.vehicle_id);
                     if (v) {
+                      setSelectedContext("fuel");
                       setSelected(v);
-                      const riskIndex = risks.findIndex((r) => r.vehicle_id === v.id);
-                      if (riskIndex >= 9) setShowAllRisk(true);
-                      setTimeout(() => {
-                        document.getElementById(`risk-card-${v.id}`)?.scrollIntoView({
-                          behavior: "smooth",
-                          block: "center",
-                        });
-                      }, 100);
                     }
                   }}
                   className="font-mono text-lg text-cyan-500 hover:text-white hover:bg-cyan-600/30 hover:scale-105 active:scale-95 transition-all duration-150 rounded px-2 py-1 -ml-2 min-h-[44px]"
+                  title="Open fuel analytics for this vehicle"
                 >
                   {f.plate}
                 </button>
@@ -729,19 +731,12 @@ export default function DashboardPage() {
                         onClick={() => {
                           const v = vehicles.find((x) => x.id === f.vehicle_id);
                           if (v) {
+                            setSelectedContext("fuel");
                             setSelected(v);
-                            const riskIndex = risks.findIndex((r) => r.vehicle_id === v.id);
-                            if (riskIndex >= 9) setShowAllRisk(true);
-                            setTimeout(() => {
-                              document.getElementById(`risk-card-${v.id}`)?.scrollIntoView({
-                                behavior: "smooth",
-                                block: "center",
-                              });
-                            }, 100);
                           }
                         }}
                         className="font-mono text-cyan-500 hover:text-white hover:bg-cyan-600/30 hover:scale-105 active:scale-95 cursor-pointer transition-all duration-150 rounded px-1.5 py-0.5 -mx-1.5"
-                        title="Show in Risk Ranking"
+                        title="Open fuel analytics for this vehicle"
                       >
                         {f.plate}
                       </button>
@@ -950,8 +945,8 @@ export default function DashboardPage() {
         <section id="scan" className="scroll-mt-32 text-slate-100">
         <DocumentScanner
           onMatch={(v) => {
+            setSelectedContext("other");
             setSelected(v);
-            // Optionally refresh list
             loadData();
           }}
         />
@@ -1127,7 +1122,8 @@ export default function DashboardPage() {
                   )}
                 </div>
 
-                                {/* AI Service Analytics */}
+                                {/* AI Service Analytics — only from Risk Ranking */}
+                {selectedContext === "risk" && (
                 <div className={`mt-4 rounded-xl border p-3 space-y-2 ${theme.tableBorder}`}>
                   <div className="flex items-center gap-2">
                     <Wrench className="w-4 h-4 text-amber-500" />
@@ -1202,7 +1198,10 @@ export default function DashboardPage() {
                     </p>
                   )}
                 </div>
+                )}
 
+                {/* AI Fuel Analytics — only from Fuel Impact */}
+                {selectedContext === "fuel" && (
                 <div className={`mt-4 rounded-xl border p-3 space-y-2 ${theme.tableBorder}`}>
                   <div className="flex items-center gap-2">
                     <Fuel className="w-4 h-4 text-cyan-500" />
@@ -1300,6 +1299,7 @@ export default function DashboardPage() {
                     </p>
                   )}
                 </div>
+                )}
 
                 <button
                   onClick={closeSheet}
