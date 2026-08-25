@@ -1207,10 +1207,6 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-2">
                     <Fuel className="w-4 h-4 text-cyan-500" />
                     <p className="text-sm font-semibold">AI Fuel Analytics</p>
-                  </div><div className={`mt-4 rounded-xl border p-3 space-y-2 ${theme.tableBorder}`}>
-                  <div className="flex items-center gap-2">
-                    <Fuel className="w-4 h-4 text-cyan-500" />
-                    <p className="text-sm font-semibold">AI Fuel Analytics</p>
                   </div>
                   {loadingFuelAnalytics && (
                     <div className="flex items-center gap-2 text-xs text-cyan-500">
