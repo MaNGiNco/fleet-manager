@@ -9,6 +9,21 @@ interface ScanResult {
   scanId?: string;
   isFuelSlip?: boolean;
   researched_avg_l_per_100km?: number | null;
+  isServiceRecord?: boolean;
+  serviceUpdate?: {
+    previous_service_odometer: number | null;
+    previous_service_date: string | null;
+    previous_interval_km: number;
+    new_service_odometer: number | null;
+    service_date: string;
+    service_reason: string | null;
+    researched_interval_km: number;
+    interval_note: string;
+    km_to_next_service: number;
+    plate?: string;
+    vehicle_id?: string;
+    fleet_id?: string;
+  } | null;
   priceVerification?: {
     slip_liters: number | null;
     cost_zar: number | null;
@@ -173,15 +188,18 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
   };
 
   const isFuel = result?.isFuelSlip || String(result?.extracted?.document_type || "").toLowerCase().includes("fuel");
+  const isService =
+    result?.isServiceRecord ||
+    String(result?.extracted?.document_type || "").toLowerCase().includes("service");
 
   return (
     <div className="bg-slate-900 text-slate-100 border border-slate-700 rounded-xl p-5 space-y-4">
       <h3 className="text-lg font-semibold flex items-center gap-2 text-slate-100">
         <Camera className="w-5 h-5 text-cyan-400" />
-        Document &amp; Fuel Slip Scanner
+        Document, Fuel &amp; Service Scanner
       </h3>
       <p className="text-sm text-slate-400">
-        Photo of COIDA / Roadworthy certificates <strong>or fuel slips</strong>. AI extracts plate,
+        Photo of COIDA / Roadworthy, <strong>fuel slips</strong>, or <strong>service job cards</strong>. AI extracts plate,
         litres, cost, odometer and tank level, then updates the matched vehicle.
       </p>
 
@@ -247,6 +265,11 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
                 <Fuel className="w-3 h-3" /> Fuel slip
               </span>
             )}
+            {isService && (
+              <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-900/60 border border-amber-700 text-amber-300">
+                Service record
+              </span>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-2 text-slate-300">
             <span>Type:</span>
@@ -254,8 +277,24 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
             <span>Plate:</span>
             <span className="font-mono">{result.extracted?.vehicle_plate || "—"}</span>
             <span>Vehicle ID:</span>
-            <span className="font-mono">{result.extracted?.vehicle_id || "—"}</span>
-            {!isFuel && (
+            <span className="font-mono">{result.extracted?.vehicle_id || result.extracted?.fleet_id || "—"}</span>
+            {isService && (
+              <>
+                <span>Fleet ID:</span>
+                <span className="font-mono">{result.extracted?.fleet_id || result.extracted?.vehicle_id || "—"}</span>
+                <span>Odometer:</span>
+                <span className="font-mono text-amber-300">
+                  {result.extracted?.odometer != null
+                    ? `${Number(result.extracted.odometer).toLocaleString()} km`
+                    : "—"}
+                </span>
+                <span>Service reason:</span>
+                <span>{result.extracted?.service_reason || "—"}</span>
+                <span>Service date:</span>
+                <span>{result.extracted?.service_date || result.extracted?.issue_date || "—"}</span>
+              </>
+            )}
+            {!isFuel && !isService && (
               <>
                 <span>Holder:</span>
                 <span>{result.extracted?.holder_name || "—"}</span>
@@ -442,6 +481,38 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
             </div>
           )}
 
+
+          {isService && result.serviceUpdate && (
+            <div className="mt-3 p-3 rounded-lg border border-amber-700 bg-amber-950/30 text-xs space-y-1.5">
+              <p className="font-medium text-amber-300">Service baseline updated</p>
+              <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-slate-300">
+                <span>Previous service odo</span>
+                <span className="font-mono">
+                  {result.serviceUpdate.previous_service_odometer != null
+                    ? `${Number(result.serviceUpdate.previous_service_odometer).toLocaleString()} km`
+                    : "—"}
+                </span>
+                <span>New service odo</span>
+                <span className="font-mono text-amber-300">
+                  {result.serviceUpdate.new_service_odometer != null
+                    ? `${Number(result.serviceUpdate.new_service_odometer).toLocaleString()} km`
+                    : "—"}
+                </span>
+                <span>AI interval (make/model)</span>
+                <span className="font-mono text-cyan-300">
+                  {result.serviceUpdate.researched_interval_km.toLocaleString()} km
+                </span>
+                <span>Km to next service</span>
+                <span className="font-mono">
+                  {result.serviceUpdate.km_to_next_service.toLocaleString()} km
+                </span>
+                <span>Reason</span>
+                <span>{result.serviceUpdate.service_reason || "—"}</span>
+              </div>
+              <p className="text-[10px] text-slate-500">{result.serviceUpdate.interval_note}</p>
+            </div>
+          )}
+
           {result.matchedVehicle ? (
             <div className="mt-3 p-3 bg-emerald-900/40 border border-emerald-700 rounded-lg">
               <p className="text-emerald-300 font-medium">Matched Vehicle</p>
@@ -456,6 +527,8 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
                         ? ` now ${result.matchedVehicle.current_fuel_level_pct}%`
                         : ""
                     }, refuel log and bulk reserve updated.`
+                  : isService
+                  ? `Service logged. Interval set to ${result.matchedVehicle.service_interval_km || "—"} km; km-to-service reset from current odometer.`
                   : "Certificate dates updated where applicable."}
               </p>
             </div>

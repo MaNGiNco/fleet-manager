@@ -301,6 +301,67 @@ function isFuelSlip(docType: string | null | undefined): boolean {
   );
 }
 
+function isServiceDoc(docType: string | null | undefined): boolean {
+  if (!docType) return false;
+  const t = String(docType).toUpperCase();
+  return (
+    t.includes("SERVICE") ||
+    t.includes("JOB CARD") ||
+    t.includes("JOBCARD") ||
+    t.includes("WORK ORDER") ||
+    t.includes("WORKORDER") ||
+    t.includes("INVOICE") && (t.includes("SERVICE") || t.includes("WORKSHOP") || t.includes("MAINTENANCE")) ||
+    t.includes("MAINTENANCE")
+  );
+}
+
+/** Typical service interval (km) for make/model via OpenRouter */
+async function researchServiceIntervalKm(
+  make: string,
+  model: string,
+  year: number | null
+): Promise<{ interval_km: number; note: string }> {
+  const fallback = { interval_km: 5000, note: "Default fleet interval 5000 km" };
+  if (!OPENROUTER_API_KEY) return fallback;
+  try {
+    const prompt = `For a ${year || ""} ${make} ${model} used as a South African commercial bakkie/fleet vehicle, what is the typical recommended service interval in kilometres (not months)? Reply STRICT JSON only:
+{"interval_km": number, "note": "brief e.g. OEM schedule minor service"}
+Use a realistic value between 5000 and 20000. Prefer minor/intermediate service interval if multiple exist.`;
+
+    const res = await fetch(OPENROUTER_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "https://fleet-manager.vercel.app",
+        "X-Title": "Fleet Manager Service Interval Research",
+      },
+      body: JSON.stringify({
+        model: TEXT_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 120,
+        temperature: 0.2,
+      }),
+    });
+    if (!res.ok) return fallback;
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content || "";
+    const match = content.match(/\{[\s\S]*\}/);
+    if (!match) return fallback;
+    const parsed = JSON.parse(match[0]);
+    const n = Number(parsed.interval_km);
+    if (Number.isFinite(n) && n >= 3000 && n <= 25000) {
+      return {
+        interval_km: Math.round(n / 500) * 500, // snap to 500 km
+        note: String(parsed.note || "AI researched OEM-style interval"),
+      };
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 /** Research typical L/100km for make/model/year via OpenRouter text model */
 async function researchAvgConsumption(
   make: string,
@@ -565,13 +626,17 @@ export async function POST(req: NextRequest) {
     const { imageBase64, mimeType } = validation;
 
     const prompt = `You are a document extraction specialist for South African fleet vehicles.
-Analyze this photo. It may be a vehicle certificate (COIDA, Roadworthy, License Disc) OR a fuel slip / petrol station receipt / diesel receipt.
+Analyze this photo. It may be:
+- a vehicle certificate (COIDA, Roadworthy, License Disc),
+- a fuel slip / petrol station receipt / diesel receipt, OR
+- a service / maintenance document (job card, workshop invoice, service report, work order).
 
 Extract STRICT JSON only (no markdown, no explanation):
 {
-  "document_type": "COIDA" | "Roadworthy" | "License Disc" | "Fuel Slip" | "Other" | "Unknown",
+  "document_type": "COIDA" | "Roadworthy" | "License Disc" | "Fuel Slip" | "Service Record" | "Other" | "Unknown",
   "vehicle_plate": "string or null",
   "vehicle_id": "string or null (fleet internal ID if present, e.g. FLT-001)",
+  "fleet_id": "string or null (same as vehicle_id / fleet unit number if shown)",
   "holder_name": "string or null (company or person name)",
   "issue_date": "YYYY-MM-DD or null",
   "expiry_date": "YYYY-MM-DD or null",
@@ -582,11 +647,15 @@ Extract STRICT JSON only (no markdown, no explanation):
   "station_name": "string or null",
   "fuel_type": "diesel" | "petrol" | "diesel 50ppm" | "diesel 500ppm" | "petrol 93" | "petrol 95" | null,
   "price_per_litre": number or null,
-  "transaction_date": "YYYY-MM-DD or null"
+  "transaction_date": "YYYY-MM-DD or null",
+  "service_reason": "string or null (e.g. 5000km service, oil change, clutch, brakes)",
+  "service_date": "YYYY-MM-DD or null",
+  "next_service_due_km": number or null
 }
 
 Rules:
-- If this is a fuel slip / receipt, set document_type to "Fuel Slip" and fill liters, cost_zar, odometer, fuel_level_pct (0-100 if shown), station_name, fuel_type, transaction_date.
+- If this is a fuel slip / receipt, set document_type to "Fuel Slip" and fill liters, cost_zar, odometer, fuel_level_pct, station_name, fuel_type, transaction_date.
+- If this is a service job card / workshop invoice / service report, set document_type to "Service Record" and fill vehicle_plate, vehicle_id, fleet_id, odometer (current reading at service), service_reason, service_date, cost_zar if present, next_service_due_km if printed.
 - fuel_level_pct is the tank percentage AFTER fill if printed; otherwise null.
 - price_per_litre is the unit price shown on the slip (R/L) if printed; otherwise null.
 - South African plates may appear as "WC 333-222", "333-222 WC", "CA 123-456", "GP 12 AB GP", etc. Extract the plate text as written.
@@ -752,7 +821,106 @@ Rules:
             }
           }
 
-          // Fuel slip path — ALWAYS update fuel level + odometer, create transaction, deduct reserve
+          // Service record path — update odometer, last service, AI service interval
+          if (matchedVehicle && isServiceDoc(extracted.document_type)) {
+            const priorLastServiceOdo = matchedVehicle.last_service_odometer ?? null;
+            const priorLastServiceDate = matchedVehicle.last_service_date ?? null;
+            const priorInterval = matchedVehicle.service_interval_km ?? 5000;
+
+            const odoRaw =
+              typeof extracted.odometer === "number"
+                ? extracted.odometer
+                : Number(extracted.odometer);
+            const odo =
+              Number.isFinite(odoRaw) && odoRaw > 0 ? odoRaw : null;
+
+            const serviceDate =
+              (typeof extracted.service_date === "string" && extracted.service_date) ||
+              (typeof extracted.issue_date === "string" && extracted.issue_date) ||
+              (typeof extracted.transaction_date === "string" && extracted.transaction_date) ||
+              new Date().toISOString().slice(0, 10);
+
+            const serviceReason =
+              typeof extracted.service_reason === "string"
+                ? extracted.service_reason
+                : null;
+
+            const intervalResearch = await researchServiceIntervalKm(
+              matchedVehicle.make || "",
+              matchedVehicle.model || "",
+              matchedVehicle.year || null
+            );
+
+            let intervalKm = intervalResearch.interval_km;
+            const nextDueRaw =
+              typeof extracted.next_service_due_km === "number"
+                ? extracted.next_service_due_km
+                : Number(extracted.next_service_due_km);
+            if (Number.isFinite(nextDueRaw) && nextDueRaw > 0 && odo != null && nextDueRaw > odo) {
+              const derived = Math.round((nextDueRaw - odo) / 500) * 500;
+              if (derived >= 3000) intervalKm = derived;
+            }
+
+            const vehicleUpdate: Record<string, unknown> = {
+              service_interval_km: intervalKm,
+              updated_at: new Date().toISOString(),
+            };
+
+            if (odo != null) {
+              vehicleUpdate.current_odometer = odo;
+              vehicleUpdate.last_service_odometer = odo;
+              vehicleUpdate.last_service_date = serviceDate;
+            }
+
+            if (serviceReason) {
+              const prevNotes = matchedVehicle.notes ? String(matchedVehicle.notes) : "";
+              const noteLine = `Service ${serviceDate}: ${serviceReason} @ ${odo ?? "?"} km`;
+              vehicleUpdate.notes = prevNotes
+                ? `${prevNotes}\n${noteLine}`.slice(0, 2000)
+                : noteLine;
+            }
+
+            if (matchedVehicle.status === "maintenance") {
+              vehicleUpdate.status = "active";
+            }
+
+            const { error: svcErr } = await supabase
+              .from("vehicles")
+              .update(vehicleUpdate)
+              .eq("id", matchedVehicle.id);
+            if (svcErr) {
+              console.error("Service record vehicle update failed:", svcErr);
+            } else {
+              console.log(
+                "[Service] Updated",
+                matchedVehicle.plate,
+                "last_service_odo=",
+                odo,
+                "interval=",
+                intervalKm
+              );
+            }
+
+            matchedVehicle = { ...matchedVehicle, ...vehicleUpdate };
+            (matchedVehicle as any).__serviceUpdate = {
+              previous_service_odometer: priorLastServiceOdo,
+              previous_service_date: priorLastServiceDate,
+              previous_interval_km: priorInterval,
+              new_service_odometer: odo,
+              service_date: serviceDate,
+              service_reason: serviceReason,
+              researched_interval_km: intervalKm,
+              interval_note: intervalResearch.note,
+              km_to_next_service: intervalKm, // just serviced
+              plate: matchedVehicle.plate,
+              vehicle_id: matchedVehicle.vehicle_id,
+              fleet_id:
+                (typeof extracted.fleet_id === "string" && extracted.fleet_id) ||
+                matchedVehicle.vehicle_id,
+            };
+          }
+
+                    // Fuel slip path — ALWAYS update fuel level + odometer, create transaction, deduct reserve
           if (matchedVehicle && isFuelSlip(extracted.document_type)) {
             const litersRaw =
               typeof extracted.liters === "number"
@@ -1168,6 +1336,9 @@ Rules:
       }
     }
 
+    const serviceUpdate = (matchedVehicle as any)?.__serviceUpdate || null;
+    const isService = isServiceDoc(extracted.document_type);
+
     return NextResponse.json({
       success: true,
       extracted,
@@ -1175,6 +1346,8 @@ Rules:
       scanId,
       researched_avg_l_per_100km: researchedAvg,
       isFuelSlip: fuelSlipDetected,
+      isServiceRecord: isService,
+      serviceUpdate,
       priceVerification,
       fraudAlert,
       matchInfo: {

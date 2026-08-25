@@ -22,6 +22,7 @@ import {
   Sun,
   Moon,
   X,
+  Wrench,
 } from "lucide-react";
 
 // Demo seed data when Supabase is not configured
@@ -154,6 +155,8 @@ export default function DashboardPage() {
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [fuelAnalytics, setFuelAnalytics] = useState<any>(null);
   const [loadingFuelAnalytics, setLoadingFuelAnalytics] = useState(false);
+  const [serviceAnalytics, setServiceAnalytics] = useState<any>(null);
+  const [loadingServiceAnalytics, setLoadingServiceAnalytics] = useState(false);
   const [fuelReserve, setFuelReserve] = useState(8500);
   const [companyCoidaExpiry, setCompanyCoidaExpiry] = useState<string | null>("2026-09-15");
   const [usingDemo, setUsingDemo] = useState(false);
@@ -172,32 +175,51 @@ export default function DashboardPage() {
     window.setTimeout(() => {
       setSelected(null);
       setFuelAnalytics(null);
+      setServiceAnalytics(null);
       setSheetClosing(false);
     }, 240);
   };
 
-  // Load AI fuel analytics when a vehicle is selected
+  // Load AI fuel + service analytics when a vehicle is selected
   useEffect(() => {
     if (!selected?.id) {
       setFuelAnalytics(null);
+      setServiceAnalytics(null);
       return;
     }
     let cancelled = false;
     const run = async () => {
       setLoadingFuelAnalytics(true);
+      setLoadingServiceAnalytics(true);
       try {
-        const res = await fetch("/api/fuel-analytics", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ vehicleId: selected.id }),
-        });
-        const data = await res.json();
-        if (!cancelled && data?.analytics) setFuelAnalytics(data.analytics);
-        else if (!cancelled) setFuelAnalytics(null);
+        const [fuelRes, svcRes] = await Promise.all([
+          fetch("/api/fuel-analytics", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ vehicleId: selected.id }),
+          }),
+          fetch("/api/service-analytics", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ vehicleId: selected.id }),
+          }),
+        ]);
+        const fuelData = await fuelRes.json().catch(() => ({}));
+        const svcData = await svcRes.json().catch(() => ({}));
+        if (!cancelled) {
+          setFuelAnalytics(fuelData?.analytics || null);
+          setServiceAnalytics(svcData?.analytics || null);
+        }
       } catch {
-        if (!cancelled) setFuelAnalytics(null);
+        if (!cancelled) {
+          setFuelAnalytics(null);
+          setServiceAnalytics(null);
+        }
       } finally {
-        if (!cancelled) setLoadingFuelAnalytics(false);
+        if (!cancelled) {
+          setLoadingFuelAnalytics(false);
+          setLoadingServiceAnalytics(false);
+        }
       }
     };
     run();
@@ -1105,7 +1127,87 @@ export default function DashboardPage() {
                   )}
                 </div>
 
+                                {/* AI Service Analytics */}
                 <div className={`mt-4 rounded-xl border p-3 space-y-2 ${theme.tableBorder}`}>
+                  <div className="flex items-center gap-2">
+                    <Wrench className="w-4 h-4 text-amber-500" />
+                    <p className="text-sm font-semibold">AI Service Analytics</p>
+                  </div>
+                  {loadingServiceAnalytics && (
+                    <div className="flex items-center gap-2 text-xs text-amber-500">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Predicting next service from routes &amp; odometer…
+                    </div>
+                  )}
+                  {!loadingServiceAnalytics && serviceAnalytics && (
+                    <div className="space-y-2 text-xs">
+                      <p className={theme.cardMuted}>{serviceAnalytics.summary}</p>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                        <span className={theme.cardMuted}>Current odo</span>
+                        <span className="font-medium">
+                          {Number(serviceAnalytics.current_odometer).toLocaleString()} km
+                        </span>
+                        <span className={theme.cardMuted}>Last service odo</span>
+                        <span className="font-medium">
+                          {serviceAnalytics.last_service_odometer != null
+                            ? `${Number(serviceAnalytics.last_service_odometer).toLocaleString()} km`
+                            : "—"}
+                        </span>
+                        <span className={theme.cardMuted}>Interval (AI/OEM)</span>
+                        <span className="font-medium">
+                          {Number(serviceAnalytics.service_interval_km).toLocaleString()} km
+                        </span>
+                        <span className={theme.cardMuted}>Km to service</span>
+                        <span
+                          className={`font-medium ${
+                            serviceAnalytics.km_to_next_service < 500
+                              ? "text-red-500"
+                              : serviceAnalytics.km_to_next_service < 1000
+                              ? "text-amber-500"
+                              : ""
+                          }`}
+                        >
+                          {serviceAnalytics.km_to_next_service.toLocaleString()} km
+                        </span>
+                        <span className={theme.cardMuted}>Avg daily km</span>
+                        <span className="font-medium">
+                          ~{serviceAnalytics.avg_daily_km_estimate} km
+                          <span className="text-[10px] opacity-70">
+                            {" "}
+                            ({serviceAnalytics.daily_km_source === "schedules" ? "routes" : "default"})
+                          </span>
+                        </span>
+                        <span className={theme.cardMuted}>Predicted service</span>
+                        <span className="font-medium text-amber-500">
+                          {serviceAnalytics.predicted_next_service_date || "—"}
+                          {serviceAnalytics.days_until_service_estimate != null
+                            ? ` (~${serviceAnalytics.days_until_service_estimate}d)`
+                            : ""}
+                        </span>
+                        <span className={theme.cardMuted}>Urgency</span>
+                        <span className="font-medium capitalize">{serviceAnalytics.urgency}</span>
+                      </div>
+                      {Array.isArray(serviceAnalytics.recommendations) && (
+                        <ul className="list-disc list-inside space-y-0.5 text-slate-400 pt-1">
+                          {serviceAnalytics.recommendations.map((r: string, i: number) => (
+                            <li key={i}>{r}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                  {!loadingServiceAnalytics && !serviceAnalytics && (
+                    <p className={`text-xs ${theme.cardMuted}`}>
+                      Scan a service job card or ensure schedules exist to refine the next service date.
+                    </p>
+                  )}
+                </div>
+
+                <div className={`mt-4 rounded-xl border p-3 space-y-2 ${theme.tableBorder}`}>
+                  <div className="flex items-center gap-2">
+                    <Fuel className="w-4 h-4 text-cyan-500" />
+                    <p className="text-sm font-semibold">AI Fuel Analytics</p>
+                  </div><div className={`mt-4 rounded-xl border p-3 space-y-2 ${theme.tableBorder}`}>
                   <div className="flex items-center gap-2">
                     <Fuel className="w-4 h-4 text-cyan-500" />
                     <p className="text-sm font-semibold">AI Fuel Analytics</p>
