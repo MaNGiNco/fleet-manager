@@ -158,6 +158,9 @@ export default function DashboardPage() {
   const [showSchedulesView, setShowSchedulesView] = useState(false);
   const [scheduleAnalytics, setScheduleAnalytics] = useState<any>(null);
   const [loadingScheduleAnalytics, setLoadingScheduleAnalytics] = useState(false);
+  const [showAllSchedules, setShowAllSchedules] = useState(false);
+  const [applyingRecs, setApplyingRecs] = useState<"clash" | "heavy_day" | null>(null);
+  const [applyRecMsg, setApplyRecMsg] = useState<string | null>(null);
   const [analytics, setAnalytics] = useState<any>(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [fuelAnalytics, setFuelAnalytics] = useState<any>(null);
@@ -219,9 +222,61 @@ export default function DashboardPage() {
 
   const openSchedulesView = () => {
     setShowSchedulesView(true);
+    setShowAllSchedules(false);
+    setApplyRecMsg(null);
     loadScheduleAnalytics();
-    // also refresh local schedules list
     loadData();
+  };
+
+  const applyScheduleRecommendations = async (kind: "clash" | "heavy_day") => {
+    if (!scheduleAnalytics) return;
+    const recs =
+      kind === "clash"
+        ? scheduleAnalytics.clash_recommendations || []
+        : (scheduleAnalytics.heavy_day_recommendations || []).filter(
+            (r: any) => r.schedule_id && r.proposed_start
+          );
+    if (!recs.length) {
+      setApplyRecMsg(`No ${kind === "clash" ? "clash" : "heavy-day"} recommendations to apply.`);
+      return;
+    }
+    setApplyingRecs(kind);
+    setApplyRecMsg(null);
+    try {
+      const res = await fetch("/api/apply-schedule-recommendations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, recommendations: recs }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Apply failed");
+      setApplyRecMsg(data.message || `Applied ${data.applied} change(s).`);
+      await loadScheduleAnalytics();
+      await loadData();
+    } catch (e: any) {
+      setApplyRecMsg(e.message || "Failed to apply recommendations");
+    } finally {
+      setApplyingRecs(null);
+    }
+  };
+
+  const sortedScheduleList = () => {
+    const list = [...(scheduleAnalytics?.schedules || schedules)];
+    const rank = (status: string) => {
+      const s = String(status || "").toLowerCase();
+      if (s === "in_progress") return 0;
+      if (s === "scheduled") return 1;
+      if (s === "delivered") return 2;
+      if (s === "completed") return 3;
+      if (s === "failed") return 4;
+      if (s === "cancelled") return 5;
+      return 6;
+    };
+    return list.sort((a: any, b: any) => {
+      const sr = rank(a.status) - rank(b.status);
+      if (sr !== 0) return sr;
+      return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
+    });
   };
 
   // Load only the analytics relevant to where the vehicle was opened from
@@ -376,6 +431,8 @@ export default function DashboardPage() {
           { id: "s7", vehicle_id: "1", driver_id: "d8", start_time: new Date(now + 48*hr).toISOString(), end_time: new Date(now + 54*hr).toISOString(), job_description: "180km inter-depot", status: "scheduled", location: "Inter-depot", job_type: "shuttle", created_at: new Date().toISOString() },
           { id: "s8", vehicle_id: "3", driver_id: "d9", start_time: new Date(now + 12*hr).toISOString(), end_time: new Date(now + 16*hr).toISOString(), job_description: "110km site inspection", status: "scheduled", location: "Site", job_type: "inspection", created_at: new Date().toISOString() },
           { id: "s9", vehicle_id: "5", driver_id: "d11", start_time: new Date(now + 30*hr).toISOString(), end_time: new Date(now + 36*hr).toISOString(), job_description: "140km bulk drop", status: "scheduled", location: "Bulk yard", job_type: "delivery", created_at: new Date().toISOString() },
+          { id: "s10", vehicle_id: "1", driver_id: "d1", start_time: new Date(now + 3*hr).toISOString(), end_time: new Date(now + 7*hr).toISOString(), job_description: "Overlapping test run", status: "scheduled", location: "Gauteng", job_type: "delivery", created_at: new Date().toISOString() },
+          { id: "s11", vehicle_id: "3", driver_id: "d2", start_time: new Date(now + 5.5*hr).toISOString(), end_time: new Date(now + 9*hr).toISOString(), job_description: "Heavy-day near overlap", status: "in_progress", location: "Cape", job_type: "collection", created_at: new Date().toISOString() },
         ]);
       }
     } catch (err: any) {
@@ -630,7 +687,7 @@ export default function DashboardPage() {
                       )}
                     {Array.isArray(scheduleAnalytics.optimisations) && (
                       <div className="space-y-1">
-                        <p className="text-xs font-medium text-emerald-500">Optimisations</p>
+                        <p className="text-xs font-medium text-emerald-500">Optimisations overview</p>
                         <ul className="list-disc list-inside text-xs space-y-0.5">
                           {scheduleAnalytics.optimisations.map((o: string, i: number) => (
                             <li key={i} className={theme.cardMuted}>
@@ -639,6 +696,94 @@ export default function DashboardPage() {
                           ))}
                         </ul>
                       </div>
+                    )}
+
+                    {/* Clash recommendations — separate apply */}
+                    <div className={`rounded-lg border p-3 space-y-2 ${theme.tableBorder}`}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-red-500">
+                          Clash recommendations ({scheduleAnalytics.clash_recommendations?.length || 0})
+                        </p>
+                        <button
+                          type="button"
+                          disabled={
+                            applyingRecs !== null ||
+                            !(scheduleAnalytics.clash_recommendations?.length > 0)
+                          }
+                          onClick={() => applyScheduleRecommendations("clash")}
+                          className="min-h-[40px] px-3 rounded-lg text-xs font-medium bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white"
+                        >
+                          {applyingRecs === "clash" ? "Applying…" : "Apply clash recommendations"}
+                        </button>
+                      </div>
+                      {(scheduleAnalytics.clash_recommendations || []).length === 0 ? (
+                        <p className={`text-xs ${theme.cardMuted}`}>No clash shifts proposed.</p>
+                      ) : (
+                        <ul className="space-y-1 text-xs">
+                          {(scheduleAnalytics.clash_recommendations || []).map((r: any, i: number) => (
+                            <li key={i} className={theme.cardMuted}>
+                              · {r.summary}
+                              {r.proposed_start
+                                ? ` → ${new Date(r.proposed_start).toLocaleString("en-ZA", {
+                                    day: "numeric",
+                                    month: "short",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}`
+                                : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    {/* Heavy day recommendations — separate apply */}
+                    <div className={`rounded-lg border p-3 space-y-2 ${theme.tableBorder}`}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-amber-500">
+                          Heavy-day recommendations (
+                          {(scheduleAnalytics.heavy_day_recommendations || []).filter(
+                            (r: any) => r.schedule_id
+                          ).length || 0}
+                          )
+                        </p>
+                        <button
+                          type="button"
+                          disabled={
+                            applyingRecs !== null ||
+                            !(scheduleAnalytics.heavy_day_recommendations || []).some(
+                              (r: any) => r.schedule_id && r.proposed_start
+                            )
+                          }
+                          onClick={() => applyScheduleRecommendations("heavy_day")}
+                          className="min-h-[40px] px-3 rounded-lg text-xs font-medium bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white"
+                        >
+                          {applyingRecs === "heavy_day" ? "Applying…" : "Apply heavy-day recommendations"}
+                        </button>
+                      </div>
+                      {(scheduleAnalytics.heavy_day_recommendations || []).length === 0 ? (
+                        <p className={`text-xs ${theme.cardMuted}`}>No heavy-day staggers proposed.</p>
+                      ) : (
+                        <ul className="space-y-1 text-xs">
+                          {(scheduleAnalytics.heavy_day_recommendations || []).map((r: any, i: number) => (
+                            <li key={i} className={theme.cardMuted}>
+                              · {r.summary}
+                              {r.proposed_start
+                                ? ` → ${new Date(r.proposed_start).toLocaleString("en-ZA", {
+                                    day: "numeric",
+                                    month: "short",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}`
+                                : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    {applyRecMsg && (
+                      <p className="text-xs text-cyan-500 font-medium">{applyRecMsg}</p>
                     )}
                   </>
                 )}
@@ -657,13 +802,19 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(scheduleAnalytics?.schedules || schedules)
-                      .slice()
-                      .sort(
-                        (a: any, b: any) =>
-                          new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
-                      )
-                      .map((s: any) => {
+                    {(() => {
+                      const full = sortedScheduleList();
+                      const visible = showAllSchedules ? full : full.slice(0, 6);
+                      if (full.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={5} className={`py-6 text-center ${theme.cardMuted}`}>
+                              No schedules yet — scan a dispatch / trip sheet to add jobs.
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return visible.map((s: any) => {
                         const v =
                           vehicles.find((x) => x.id === s.vehicle_id) ||
                           (s.plate ? { plate: s.plate, vehicle_id: s.vehicle_fleet_id } : null);
@@ -691,16 +842,29 @@ export default function DashboardPage() {
                             <td className="py-2 px-3 capitalize">{s.status}</td>
                           </tr>
                         );
-                      })}
-                    {(scheduleAnalytics?.schedules || schedules).length === 0 && (
-                      <tr>
-                        <td colSpan={5} className={`py-6 text-center ${theme.cardMuted}`}>
-                          No schedules yet — scan a dispatch / trip sheet to add jobs.
-                        </td>
-                      </tr>
-                    )}
+                      });
+                    })()}
                   </tbody>
                 </table>
+                {sortedScheduleList().length > 6 && (
+                  <div className="p-3 text-center border-t border-inherit">
+                    <button
+                      type="button"
+                      onClick={() => setShowAllSchedules(!showAllSchedules)}
+                      className={`inline-flex items-center justify-center gap-2 min-h-[44px] px-4 py-2 text-sm border rounded-lg ${theme.seeMore}`}
+                    >
+                      {showAllSchedules ? (
+                        <>
+                          <ChevronUp className="w-4 h-4" /> Show less
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="w-4 h-4" /> See more ({sortedScheduleList().length - 6} more)
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
