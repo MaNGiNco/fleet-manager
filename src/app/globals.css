@@ -105,3 +105,24 @@ body {
     animation-duration: 1ms !important;
   }
 }
+
+
+/* Hide scrollbar but keep scroll (popups / sheets) */
+.hide-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+.hide-scrollbar::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none;
+}
+.sheet-panel {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.sheet-panel::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none;
+}

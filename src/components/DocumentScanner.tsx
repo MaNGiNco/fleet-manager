@@ -301,6 +301,18 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
             <span className="font-mono">{result.extracted?.document_type || "—"}</span>
             <span>Plate:</span>
             <span className="font-mono">{result.extracted?.vehicle_plate || "—"}</span>
+            {(result.extracted?.vehicle_status || result.extracted?.driver_status) && (
+              <>
+                <span>Vehicle status:</span>
+                <span className="capitalize font-medium text-amber-300">
+                  {result.extracted?.vehicle_status || "—"}
+                </span>
+                <span>Driver status:</span>
+                <span className="capitalize font-medium text-amber-300">
+                  {result.extracted?.driver_status || "—"}
+                </span>
+              </>
+            )}
             <span>Vehicle ID:</span>
             <span className="font-mono">{result.extracted?.vehicle_id || result.extracted?.fleet_id || "—"}</span>
             {isService && (

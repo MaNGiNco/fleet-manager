@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Vehicle, RiskScore, FuelImpact, Driver, Schedule } from "@/types";
-import { calculateRiskScores, calculateFuelImpacts, kmToNextService, daysUntil } from "@/lib/utils";
+import { calculateRiskScores, calculateFuelImpacts, kmToNextService, daysUntil, formatDate } from "@/lib/utils";
 import VehicleCard from "@/components/VehicleCard";
 import DocumentScanner from "@/components/DocumentScanner";
 import {
@@ -161,6 +161,19 @@ export default function DashboardPage() {
   const [showAllSchedules, setShowAllSchedules] = useState(false);
   const [applyingRecs, setApplyingRecs] = useState<"clash" | "heavy_day" | null>(null);
   const [applyRecMsg, setApplyRecMsg] = useState<string | null>(null);
+  const [showRoadworthyPopup, setShowRoadworthyPopup] = useState(false);
+  const [showFuelReserveModal, setShowFuelReserveModal] = useState(false);
+  const [fuelReserveMode, setFuelReserveMode] = useState<"tank" | "budget">("tank");
+  const [fuelReserveLitersInput, setFuelReserveLitersInput] = useState("");
+  const [fuelBudgetInput, setFuelBudgetInput] = useState("");
+  const [fuelReserveMsg, setFuelReserveMsg] = useState<string | null>(null);
+  const [savingFuelReserve, setSavingFuelReserve] = useState(false);
+  const [fuelReserveMeta, setFuelReserveMeta] = useState<{
+    mode?: string;
+    budget_zar?: number | null;
+    remaining_budget_zar?: number | null;
+    capacity_liters?: number | null;
+  }>({});
   const [analytics, setAnalytics] = useState<any>(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [fuelAnalytics, setFuelAnalytics] = useState<any>(null);
@@ -217,6 +230,44 @@ export default function DashboardPage() {
       setScheduleAnalytics({ error: e?.message || "Failed" });
     } finally {
       setLoadingScheduleAnalytics(false);
+    }
+  };
+
+  const saveFuelReserve = async () => {
+    setSavingFuelReserve(true);
+    setFuelReserveMsg(null);
+    try {
+      const body =
+        fuelReserveMode === "budget"
+          ? { mode: "budget", budget_zar: Number(fuelBudgetInput) }
+          : { mode: "tank", current_liters: Number(fuelReserveLitersInput) };
+      const res = await fetch("/api/fuel-reserve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Save failed");
+      if (data.reserve) {
+        setFuelReserve(Number(data.reserve.current_liters) || 0);
+        setFuelReserveMeta({
+          mode: data.reserve.mode,
+          budget_zar: data.reserve.budget_zar,
+          remaining_budget_zar: data.reserve.remaining_budget_zar,
+          capacity_liters: data.reserve.capacity_liters,
+        });
+      }
+      setFuelReserveMsg(
+        data.message ||
+          (fuelReserveMode === "budget"
+            ? `Budget set. Expected ~${data.expected_liters} L @ R${data.researched_price_per_litre}/L`
+            : "Bulk tank level updated")
+      );
+      await loadData();
+    } catch (e: any) {
+      setFuelReserveMsg(e.message || "Could not update reserve");
+    } finally {
+      setSavingFuelReserve(false);
     }
   };
 
@@ -379,8 +430,21 @@ export default function DashboardPage() {
           setDataError(null);
         }
 
-        const { data: reserve } = await supabase.from("fuel_reserve").select("current_liters").limit(1).single();
-        if (reserve) setFuelReserve(Number(reserve.current_liters));
+        const { data: reserve } = await supabase
+          .from("fuel_reserve")
+          .select("current_liters, capacity_liters, budget_zar, remaining_budget_zar, mode")
+          .limit(1)
+          .maybeSingle();
+        if (reserve) {
+          setFuelReserve(Number(reserve.current_liters) || 0);
+          setFuelReserveMeta({
+            mode: reserve.mode || "tank",
+            budget_zar: reserve.budget_zar,
+            remaining_budget_zar: reserve.remaining_budget_zar,
+            capacity_liters: reserve.capacity_liters,
+          });
+          if (reserve.mode === "budget") setFuelReserveMode("budget");
+        }
 
         const { data: compliance } = await supabase
           .from("company_compliance")
@@ -610,7 +674,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24">
+            <div className="flex-1 overflow-y-auto hide-scrollbar p-4 space-y-4 pb-24">
               {/* AI analytics */}
               <div className={`rounded-xl border p-4 space-y-3 ${theme.tableBorder}`}>
                 <p className="text-sm font-semibold flex items-center gap-2">
@@ -890,22 +954,74 @@ export default function DashboardPage() {
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-8">
         {/* KPI strip */}
         <section id="overview" className="grid grid-cols-2 md:grid-cols-4 gap-4 scroll-mt-32">
-          <div className={`${theme.card} rounded-xl p-4`}>
+          <button
+            type="button"
+            onClick={() => {
+              setShowAllRisk(true);
+              scrollToSection("risk");
+            }}
+            className={`${theme.card} rounded-xl p-4 text-left hover:ring-2 hover:ring-cyan-500/50 transition`}
+            title="Show all vehicles in risk ranking"
+          >
             <p className={`text-xs ${theme.cardMuted} uppercase`}>Total Vehicles</p>
             <p className="text-2xl font-bold">{vehicles.length}</p>
-          </div>
-          <div className={`${theme.card} rounded-xl p-4`}>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (downVehicles.length > 0) scrollToSection("downtime");
+              else {
+                setShowAllRisk(true);
+                scrollToSection("risk");
+              }
+            }}
+            className={`${theme.card} rounded-xl p-4 text-left hover:ring-2 hover:ring-red-500/50 transition`}
+            title="View offline / down vehicles"
+          >
             <p className={`text-xs ${theme.cardMuted} uppercase`}>Down / Offline</p>
             <p className="text-2xl font-bold text-red-500">{downVehicles.length}</p>
-          </div>
-          <div className={`${theme.card} rounded-xl p-4`}>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowRoadworthyPopup(true)}
+            className={`${theme.card} rounded-xl p-4 text-left hover:ring-2 hover:ring-amber-500/50 transition`}
+            title="Vehicles with roadworthy expiring within 20 days"
+          >
             <p className={`text-xs ${theme.cardMuted} uppercase`}>Roadworthy ≤20 days</p>
             <p className="text-2xl font-bold text-amber-500">{certAlerts.length}</p>
-          </div>
-          <div className={`${theme.card} rounded-xl p-4`}>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setFuelReserveLitersInput(String(fuelReserve || ""));
+              setFuelBudgetInput(
+                fuelReserveMeta.remaining_budget_zar != null
+                  ? String(fuelReserveMeta.remaining_budget_zar)
+                  : fuelReserveMeta.budget_zar != null
+                  ? String(fuelReserveMeta.budget_zar)
+                  : ""
+              );
+              setFuelReserveMode(
+                fuelReserveMeta.mode === "budget" ? "budget" : "tank"
+              );
+              setFuelReserveMsg(null);
+              setShowFuelReserveModal(true);
+            }}
+            className={`${theme.card} rounded-xl p-4 text-left hover:ring-2 hover:ring-cyan-500/50 transition`}
+            title="Update bulk fuel reserve or budget"
+          >
             <p className={`text-xs ${theme.cardMuted} uppercase`}>Fuel Reserve</p>
-            <p className="text-2xl font-bold text-cyan-600">{fuelReserve.toLocaleString()} L</p>
-          </div>
+            <p className="text-2xl font-bold text-cyan-600">
+              {fuelReserveMeta.mode === "budget" && fuelReserveMeta.remaining_budget_zar != null
+                ? `R${Number(fuelReserveMeta.remaining_budget_zar).toLocaleString()}`
+                : `${fuelReserve.toLocaleString()} L`}
+            </p>
+            {fuelReserveMeta.mode === "budget" && (
+              <p className={`text-[10px] ${theme.cardMuted}`}>
+                ≈ {fuelReserve.toLocaleString()} L budget mode
+              </p>
+            )}
+          </button>
         </section>
 
         {/* Company COIDA (business-level, not per vehicle) */}
@@ -1028,7 +1144,7 @@ export default function DashboardPage() {
 
         {/* Downtime & Reschedule helper */}
         {downVehicles.length > 0 && (
-          <section className={`${lightMode ? "bg-red-50 border-red-200 text-slate-900" : "bg-slate-900 border-red-900/50 text-slate-100"} border rounded-xl p-5`}>
+          <section id="downtime" className={`${lightMode ? "bg-red-50 border-red-200 text-slate-900" : "bg-slate-900 border-red-900/50 text-slate-100"} border rounded-xl p-5`}>
             <h2 className={`text-lg font-semibold mb-3 flex items-center gap-2 ${lightMode ? "text-red-700" : "text-red-300"}`}>
               <CalendarClock className="w-5 h-5" />
               Vehicles Offline – Schedule Shuffle Needed
@@ -1487,7 +1603,7 @@ export default function DashboardPage() {
               />
               {/* Bottom sheet */}
               <div
-                className={`sheet-panel fixed bottom-0 left-0 right-0 z-50 ${theme.popup} border-t rounded-t-2xl p-5 shadow-2xl max-h-[75vh] overflow-y-auto pb-8 ${
+                className={`sheet-panel fixed bottom-0 left-0 right-0 z-50 ${theme.popup} border-t rounded-t-2xl p-5 shadow-2xl max-h-[75vh] overflow-y-auto hide-scrollbar pb-8 ${
                   sheetClosing ? "sheet-closing" : ""
                 }`}
                 role="dialog"
@@ -1775,7 +1891,7 @@ export default function DashboardPage() {
                 onClick={closeDriverSheet}
               />
               <div
-                className={`sheet-panel fixed bottom-0 left-0 right-0 z-50 ${theme.popup} border-t rounded-t-2xl p-5 shadow-2xl max-h-[75vh] overflow-y-auto pb-8 ${
+                className={`sheet-panel fixed bottom-0 left-0 right-0 z-50 ${theme.popup} border-t rounded-t-2xl p-5 shadow-2xl max-h-[75vh] overflow-y-auto hide-scrollbar pb-8 ${
                   driverSheetClosing ? "sheet-closing" : ""
                 }`}
                 role="dialog"
@@ -1929,6 +2045,163 @@ export default function DashboardPage() {
             </>
           );
         })()}
+
+
+      {/* Roadworthy ≤20 days popup */}
+      {showRoadworthyPopup && (
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/45 p-0 sm:p-4">
+          <div
+            className={`w-full sm:max-w-lg max-h-[75vh] overflow-y-auto hide-scrollbar rounded-t-2xl sm:rounded-2xl border p-5 shadow-2xl ${theme.popup} ${theme.tableBorder}`}
+          >
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <p className="font-semibold">Roadworthy expiring ≤ 20 days</p>
+                <p className={`text-xs ${theme.cardMuted}`}>{certAlerts.length} vehicle(s)</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRoadworthyPopup(false)}
+                className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg ${theme.btn}`}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {certAlerts.length === 0 ? (
+              <p className={`text-sm ${theme.cardMuted}`}>No certificates in the 20-day window.</p>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {certAlerts.map((v) => {
+                  const days = daysUntil(v.roadworthy_expiry);
+                  const drv = drivers.find((d) => d.id === v.assigned_driver_id);
+                  return (
+                    <li
+                      key={v.id}
+                      className={`p-3 rounded-xl border ${theme.tableBorder}`}
+                    >
+                      <p className="font-medium">
+                        {v.make} {v.model} · <span className="font-mono text-cyan-500">{v.plate}</span>
+                      </p>
+                      <p className={`text-xs ${theme.cardMuted}`}>
+                        Driver: {drv?.name || "Unassigned"}
+                      </p>
+                      <p
+                        className={`text-xs font-medium ${
+                          days != null && days < 0
+                            ? "text-red-500"
+                            : days != null && days <= 7
+                            ? "text-red-500"
+                            : "text-amber-500"
+                        }`}
+                      >
+                        {days != null
+                          ? days < 0
+                            ? `Expired ${Math.abs(days)}d ago`
+                            : `${days} day${days === 1 ? "" : "s"} remaining`
+                          : "Date unknown"}{" "}
+                        · {formatDate(v.roadworthy_expiry)}
+                      </p>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowRoadworthyPopup(false)}
+              className="mt-4 w-full min-h-[48px] rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-medium"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Fuel reserve update modal */}
+      {showFuelReserveModal && (
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/45 p-0 sm:p-4">
+          <div
+            className={`w-full sm:max-w-md max-h-[75vh] overflow-y-auto hide-scrollbar rounded-t-2xl sm:rounded-2xl border p-5 shadow-2xl ${theme.popup} ${theme.tableBorder}`}
+          >
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <p className="font-semibold">Bulk fuel reserve</p>
+                <p className={`text-xs ${theme.cardMuted}`}>
+                  Tank litres or Rand budget (AI price → expected litres)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFuelReserveModal(false)}
+                className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg ${theme.btn}`}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setFuelReserveMode("tank")}
+                className={`flex-1 min-h-[44px] rounded-lg text-sm font-medium border ${
+                  fuelReserveMode === "tank"
+                    ? "bg-cyan-600 text-white border-cyan-600"
+                    : theme.btn
+                }`}
+              >
+                Bulk tank (L)
+              </button>
+              <button
+                type="button"
+                onClick={() => setFuelReserveMode("budget")}
+                className={`flex-1 min-h-[44px] rounded-lg text-sm font-medium border ${
+                  fuelReserveMode === "budget"
+                    ? "bg-cyan-600 text-white border-cyan-600"
+                    : theme.btn
+                }`}
+              >
+                Budget (R)
+              </button>
+            </div>
+            {fuelReserveMode === "tank" ? (
+              <label className="block text-sm space-y-1">
+                <span className={theme.cardMuted}>Current tank level (litres)</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={fuelReserveLitersInput}
+                  onChange={(e) => setFuelReserveLitersInput(e.target.value)}
+                  className={`w-full min-h-[48px] rounded-lg border px-3 ${theme.tableBorder} bg-transparent`}
+                />
+              </label>
+            ) : (
+              <label className="block text-sm space-y-1">
+                <span className={theme.cardMuted}>Fuel budget (Rand)</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={fuelBudgetInput}
+                  onChange={(e) => setFuelBudgetInput(e.target.value)}
+                  className={`w-full min-h-[48px] rounded-lg border px-3 ${theme.tableBorder} bg-transparent`}
+                />
+                <span className={`text-[10px] ${theme.cardMuted}`}>
+                  AI will research current diesel price and estimate litres from this budget. Fuel slip
+                  costs are deducted from remaining budget.
+                </span>
+              </label>
+            )}
+            {fuelReserveMsg && (
+              <p className="mt-3 text-xs text-cyan-500 font-medium">{fuelReserveMsg}</p>
+            )}
+            <button
+              type="button"
+              disabled={savingFuelReserve}
+              onClick={saveFuelReserve}
+              className="mt-4 w-full min-h-[48px] rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-medium"
+            >
+              {savingFuelReserve ? "Saving…" : "Save reserve"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Bottom navigation – mobile first */}
       <nav className={`fixed bottom-0 left-0 right-0 z-30 ${theme.nav} safe-area-pb`}>

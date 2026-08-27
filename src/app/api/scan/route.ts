@@ -692,13 +692,17 @@ Extract STRICT JSON only (no markdown, no explanation):
   "driver_name": "string or null",
   "driver_id": "string or null",
   "location": "string or null (delivery/site address or area)",
-  "delivery_status": "scheduled" | "in_progress" | "completed" | "delivered" | "failed" | "cancelled" | null
+  "delivery_status": "scheduled" | "in_progress" | "completed" | "delivered" | "failed" | "cancelled" | null,
+  "vehicle_status": "active" | "maintenance" | "accident" | "inactive" | null,
+  "driver_status": "available" | "assigned" | "off" | null
 }
 
 Rules:
 - If this is a fuel slip / receipt, set document_type to "Fuel Slip" and fill liters, cost_zar, odometer, fuel_level_pct, station_name, fuel_type, transaction_date.
 - If this is a service job card / workshop invoice / service report, set document_type to "Service Record" and fill vehicle_plate, vehicle_id, fleet_id, odometer (current reading at service), service_reason, service_date, cost_zar if present, next_service_due_km if printed.
 - If this is a schedule / dispatch / delivery note / trip sheet / job assignment, set document_type to "Schedule" and fill job_type, job_date, job_time, job_end_time, vehicle_plate and/or vehicle_id/fleet_id, driver_name and/or driver_id, location, delivery_status.
+- vehicle_status: set when the document clearly states the vehicle is in maintenance, accident/repair, inactive, or back to active.
+- driver_status: set when the document clearly states the driver is available, assigned, or off (leave/off day).
 - fuel_level_pct is the tank percentage AFTER fill if printed; otherwise null.
 - price_per_litre is the unit price shown on the slip (R/L) if printed; otherwise null.
 - South African plates may appear as "WC 333-222", "333-222 WC", "CA 123-456", "GP 12 AB GP", etc. Extract the plate text as written.
@@ -865,6 +869,52 @@ Rules:
             }
           }
 
+
+
+          // Explicit vehicle / driver status from any document type
+          {
+            const vsRaw = String(extracted.vehicle_status || "").toLowerCase().trim();
+            const allowedVehicle = new Set(["active", "maintenance", "accident", "inactive"]);
+            if (matchedVehicle && allowedVehicle.has(vsRaw) && vsRaw !== matchedVehicle.status) {
+              const { error: stErr } = await supabase
+                .from("vehicles")
+                .update({ status: vsRaw, updated_at: new Date().toISOString() })
+                .eq("id", matchedVehicle.id);
+              if (stErr) console.error("Vehicle status update failed:", stErr);
+              else {
+                matchedVehicle = { ...matchedVehicle, status: vsRaw };
+                console.log("[Status] Vehicle", matchedVehicle.plate, "→", vsRaw);
+              }
+            }
+
+            const dsRaw = String(extracted.driver_status || "").toLowerCase().trim();
+            const allowedDriver = new Set(["available", "assigned", "off"]);
+            if (allowedDriver.has(dsRaw)) {
+              let driverIdForStatus = matchedVehicle?.assigned_driver_id || null;
+              // Prefer driver named on document
+              const dn =
+                typeof extracted.driver_name === "string" ? extracted.driver_name.trim() : null;
+              if (dn) {
+                try {
+                  const { data: drows } = await supabase.from("drivers").select("id, name").limit(300);
+                  const hit = (drows || []).find(
+                    (d: any) => String(d.name || "").toUpperCase() === dn.toUpperCase()
+                  ) || (drows || []).find((d: any) =>
+                    String(d.name || "").toUpperCase().includes(dn.toUpperCase())
+                  );
+                  if (hit) driverIdForStatus = hit.id;
+                } catch { /* ignore */ }
+              }
+              if (driverIdForStatus) {
+                const { error: dsErr } = await supabase
+                  .from("drivers")
+                  .update({ status: dsRaw })
+                  .eq("id", driverIdForStatus);
+                if (dsErr) console.error("Driver status update failed:", dsErr);
+                else console.log("[Status] Driver", driverIdForStatus, "→", dsRaw);
+              }
+            }
+          }
 
           // Schedule / dispatch / delivery path
           if (isScheduleDoc(extracted.document_type) || String(extracted.document_type || "").toUpperCase() === "SCHEDULE") {
@@ -1270,22 +1320,35 @@ Rules:
                 fuelTxId = txRow?.id ?? null;
               }
 
-              // Deduct from bulk reserve (best-effort)
+              // Deduct from bulk reserve (tank litres and/or budget Rands)
               try {
                 const { data: reserve } = await supabase
                   .from("fuel_reserve")
-                  .select("id, current_liters")
+                  .select("id, current_liters, remaining_budget_zar, budget_zar, mode")
                   .limit(1)
                   .maybeSingle();
-                if (reserve?.id != null && reserve.current_liters != null) {
-                  const next = Math.max(0, Number(reserve.current_liters) - liters);
-                  await supabase
-                    .from("fuel_reserve")
-                    .update({
-                      current_liters: next,
-                      last_updated: new Date().toISOString(),
-                    })
-                    .eq("id", reserve.id);
+                if (reserve?.id != null) {
+                  const patch: Record<string, unknown> = {
+                    last_updated: new Date().toISOString(),
+                  };
+                  const mode = String(reserve.mode || "tank");
+                  if (mode === "budget" || reserve.remaining_budget_zar != null) {
+                    const spend = cost != null && cost > 0 ? cost : 0;
+                    if (spend > 0 && reserve.remaining_budget_zar != null) {
+                      patch.remaining_budget_zar = Math.max(
+                        0,
+                        Number(reserve.remaining_budget_zar) - spend
+                      );
+                    }
+                    // Also track litres equivalent when possible
+                    if (liters > 0 && reserve.current_liters != null) {
+                      patch.current_liters = Math.max(0, Number(reserve.current_liters) - liters);
+                    }
+                  } else {
+                    patch.current_liters = Math.max(0, Number(reserve.current_liters || 0) - liters);
+                  }
+                  await supabase.from("fuel_reserve").update(patch).eq("id", reserve.id);
+                  console.log("[Fuel] Reserve deducted", patch);
                 }
               } catch (reserveErr) {
                 console.error("Fuel reserve update failed:", reserveErr);

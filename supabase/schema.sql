@@ -96,9 +96,17 @@ CREATE TABLE IF NOT EXISTS fuel_reserve (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   current_liters NUMERIC(12,2) NOT NULL DEFAULT 0,
   capacity_liters NUMERIC(12,2) DEFAULT 10000,
+  budget_zar NUMERIC(14,2),
+  remaining_budget_zar NUMERIC(14,2),
+  mode TEXT DEFAULT 'tank' CHECK (mode IN ('tank', 'budget')),
   last_updated TIMESTAMPTZ DEFAULT NOW(),
   notes TEXT
 );
+
+-- ALTER TABLE fuel_reserve ADD COLUMN IF NOT EXISTS budget_zar NUMERIC(14,2);
+-- ALTER TABLE fuel_reserve ADD COLUMN IF NOT EXISTS remaining_budget_zar NUMERIC(14,2);
+-- ALTER TABLE fuel_reserve ADD COLUMN IF NOT EXISTS mode TEXT DEFAULT 'tank';
+
 
 CREATE INDEX IF NOT EXISTS idx_vehicles_status ON vehicles(status);
 CREATE INDEX IF NOT EXISTS idx_vehicles_plate ON vehicles(plate);
