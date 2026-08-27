@@ -10,6 +10,21 @@ interface ScanResult {
   isFuelSlip?: boolean;
   researched_avg_l_per_100km?: number | null;
   isServiceRecord?: boolean;
+  isSchedule?: boolean;
+  scheduleUpdate?: {
+    created: any;
+    clashes: any[];
+    vehicle_plate?: string;
+    fleet_id?: string;
+    driver_name?: string | null;
+    driver_id?: string | null;
+    job_type?: string | null;
+    location?: string | null;
+    start_time?: string;
+    end_time?: string | null;
+    status?: string;
+    has_clashes?: boolean;
+  } | null;
   serviceUpdate?: {
     previous_service_odometer: number | null;
     previous_service_date: string | null;
@@ -191,15 +206,20 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
   const isService =
     result?.isServiceRecord ||
     String(result?.extracted?.document_type || "").toLowerCase().includes("service");
+  const isSchedule =
+    result?.isSchedule ||
+    String(result?.extracted?.document_type || "").toLowerCase().includes("schedule") ||
+    String(result?.extracted?.document_type || "").toLowerCase().includes("dispatch") ||
+    String(result?.extracted?.document_type || "").toLowerCase().includes("delivery");
 
   return (
     <div className="bg-slate-900 text-slate-100 border border-slate-700 rounded-xl p-5 space-y-4">
       <h3 className="text-lg font-semibold flex items-center gap-2 text-slate-100">
         <Camera className="w-5 h-5 text-cyan-400" />
-        Document, Fuel &amp; Service Scanner
+        Document, Fuel, Service &amp; Schedule Scanner
       </h3>
       <p className="text-sm text-slate-400">
-        Photo of COIDA / Roadworthy, <strong>fuel slips</strong>, or <strong>service job cards</strong>. AI extracts plate,
+        Photo of COIDA / Roadworthy, <strong>fuel slips</strong>, or <strong>service / schedule / dispatch sheets</strong>. AI extracts plate,
         litres, cost, odometer and tank level, then updates the matched vehicle.
       </p>
 
@@ -270,6 +290,11 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
                 Service record
               </span>
             )}
+            {isSchedule && (
+              <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-violet-900/60 border border-violet-700 text-violet-300">
+                Schedule
+              </span>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-2 text-slate-300">
             <span>Type:</span>
@@ -294,7 +319,23 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
                 <span>{result.extracted?.service_date || result.extracted?.issue_date || "—"}</span>
               </>
             )}
-            {!isFuel && !isService && (
+            {isSchedule && (
+              <>
+                <span>Job type:</span>
+                <span>{result.extracted?.job_type || "—"}</span>
+                <span>Date / time:</span>
+                <span className="font-mono">
+                  {result.extracted?.job_date || "—"} {result.extracted?.job_time || ""}
+                </span>
+                <span>Driver:</span>
+                <span>{result.extracted?.driver_name || result.extracted?.driver_id || "—"}</span>
+                <span>Location:</span>
+                <span>{result.extracted?.location || "—"}</span>
+                <span>Status:</span>
+                <span className="capitalize">{result.extracted?.delivery_status || "—"}</span>
+              </>
+            )}
+            {!isFuel && !isService && !isSchedule && (
               <>
                 <span>Holder:</span>
                 <span>{result.extracted?.holder_name || "—"}</span>
@@ -513,6 +554,50 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
             </div>
           )}
 
+
+          {isSchedule && result.scheduleUpdate && (
+            <div
+              className={`mt-3 p-3 rounded-lg border text-xs space-y-1.5 ${
+                result.scheduleUpdate.has_clashes
+                  ? "border-red-600/60 bg-red-950/40"
+                  : "border-violet-700 bg-violet-950/30"
+              }`}
+            >
+              <p className={`font-medium ${result.scheduleUpdate.has_clashes ? "text-red-300" : "text-violet-300"}`}>
+                {result.scheduleUpdate.created
+                  ? "Schedule saved to database"
+                  : "Schedule extracted (vehicle not matched — not saved)"}
+              </p>
+              <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-slate-300">
+                <span>Vehicle</span>
+                <span className="font-mono">{result.scheduleUpdate.vehicle_plate || "—"}</span>
+                <span>Fleet ID</span>
+                <span className="font-mono">{result.scheduleUpdate.fleet_id || "—"}</span>
+                <span>Driver</span>
+                <span>{result.scheduleUpdate.driver_name || "—"}</span>
+                <span>Window</span>
+                <span className="font-mono text-[10px]">
+                  {result.scheduleUpdate.start_time
+                    ? new Date(result.scheduleUpdate.start_time).toLocaleString("en-ZA")
+                    : "—"}
+                </span>
+                <span>Location</span>
+                <span>{result.scheduleUpdate.location || "—"}</span>
+              </div>
+              {result.scheduleUpdate.has_clashes && (
+                <div className="mt-2 space-y-1">
+                  <p className="text-red-300 font-medium">Clashes detected</p>
+                  {(result.scheduleUpdate.clashes || []).map((c: any, i: number) => (
+                    <p key={i} className="text-red-200/90">
+                      · {c.message}
+                      {c.existing_job ? ` (${c.existing_job})` : ""}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {result.matchedVehicle ? (
             <div className="mt-3 p-3 bg-emerald-900/40 border border-emerald-700 rounded-lg">
               <p className="text-emerald-300 font-medium">Matched Vehicle</p>
@@ -529,6 +614,10 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
                     }, refuel log and bulk reserve updated.`
                   : isService
                   ? `Service logged. Interval set to ${result.matchedVehicle.service_interval_km || "—"} km; km-to-service reset from current odometer.`
+                  : isSchedule
+                  ? result.scheduleUpdate?.has_clashes
+                    ? "Schedule saved but clashes were flagged — review before dispatch."
+                    : "Schedule saved for this vehicle/driver."
                   : "Certificate dates updated where applicable."}
               </p>
             </div>

@@ -79,9 +79,18 @@ CREATE TABLE IF NOT EXISTS schedules (
   start_time TIMESTAMPTZ NOT NULL,
   end_time TIMESTAMPTZ,
   job_description TEXT,
-  status TEXT DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'in_progress', 'completed', 'cancelled')),
+  status TEXT DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'in_progress', 'completed', 'cancelled', 'delivered', 'failed')),
+  location TEXT,
+  job_type TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Upgrade existing DBs:
+-- ALTER TABLE schedules ADD COLUMN IF NOT EXISTS location TEXT;
+-- ALTER TABLE schedules ADD COLUMN IF NOT EXISTS job_type TEXT;
+-- ALTER TABLE schedules DROP CONSTRAINT IF EXISTS schedules_status_check;
+-- ALTER TABLE schedules ADD CONSTRAINT schedules_status_check CHECK (status IN ('scheduled', 'in_progress', 'completed', 'cancelled', 'delivered', 'failed'));
+
 
 CREATE TABLE IF NOT EXISTS fuel_reserve (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

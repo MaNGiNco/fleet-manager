@@ -155,6 +155,9 @@ export default function DashboardPage() {
   const [selectedContext, setSelectedContext] = useState<"risk" | "fuel" | "other" | null>(null);
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [driverSheetClosing, setDriverSheetClosing] = useState(false);
+  const [showSchedulesView, setShowSchedulesView] = useState(false);
+  const [scheduleAnalytics, setScheduleAnalytics] = useState<any>(null);
+  const [loadingScheduleAnalytics, setLoadingScheduleAnalytics] = useState(false);
   const [analytics, setAnalytics] = useState<any>(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [fuelAnalytics, setFuelAnalytics] = useState<any>(null);
@@ -198,6 +201,27 @@ export default function DashboardPage() {
     setSelected(null);
     setSelectedContext(null);
     setSelectedDriver(d);
+  };
+
+  const loadScheduleAnalytics = async () => {
+    setLoadingScheduleAnalytics(true);
+    try {
+      const res = await fetch("/api/schedule-analytics", { method: "POST" });
+      const data = await res.json();
+      if (data?.success) setScheduleAnalytics(data);
+      else setScheduleAnalytics({ error: data?.error || "Failed to load" });
+    } catch (e: any) {
+      setScheduleAnalytics({ error: e?.message || "Failed" });
+    } finally {
+      setLoadingScheduleAnalytics(false);
+    }
+  };
+
+  const openSchedulesView = () => {
+    setShowSchedulesView(true);
+    loadScheduleAnalytics();
+    // also refresh local schedules list
+    loadData();
   };
 
   // Load only the analytics relevant to where the vehicle was opened from
@@ -467,6 +491,15 @@ export default function DashboardPage() {
               </span>
             )}
             <button
+              onClick={openSchedulesView}
+              className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg ${theme.btn} transition ${
+                showSchedulesView ? "ring-2 ring-violet-500" : ""
+              }`}
+              title="Schedules — vehicles, drivers & AI clash analysis"
+            >
+              <CalendarClock className="w-5 h-5 text-violet-500" />
+            </button>
+            <button
               onClick={() => setLightMode(!lightMode)}
               className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg ${theme.btn} transition`}
               title={lightMode ? "Dark mode" : "Light mode (outdoor)"}
@@ -485,6 +518,195 @@ export default function DashboardPage() {
         </div>
 
       </header>
+
+      {/* Full schedules board */}
+      {showSchedulesView && (
+        <div className="fixed inset-0 z-[60] flex flex-col bg-black/50">
+          <div className={`flex-1 m-0 sm:m-4 sm:rounded-2xl overflow-hidden flex flex-col ${theme.popup} border ${theme.tableBorder} shadow-2xl`}>
+            <div className={`flex items-center justify-between gap-3 px-4 py-3 border-b ${theme.tableBorder}`}>
+              <div className="flex items-center gap-2">
+                <CalendarClock className="w-5 h-5 text-violet-500" />
+                <div>
+                  <p className="font-semibold">Fleet schedules</p>
+                  <p className={`text-xs ${theme.cardMuted}`}>
+                    Drivers · vehicles · clashes · AI optimisation
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={loadScheduleAnalytics}
+                  disabled={loadingScheduleAnalytics}
+                  className={`min-h-[44px] px-3 rounded-lg text-sm ${theme.btn}`}
+                >
+                  {loadingScheduleAnalytics ? "Refreshing…" : "Refresh AI"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSchedulesView(false)}
+                  className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg ${theme.btn}`}
+                  aria-label="Close schedules"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24">
+              {/* AI analytics */}
+              <div className={`rounded-xl border p-4 space-y-3 ${theme.tableBorder}`}>
+                <p className="text-sm font-semibold flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-cyan-500" />
+                  AI schedule analytics
+                </p>
+                {loadingScheduleAnalytics && (
+                  <div className="flex items-center gap-2 text-xs text-cyan-500">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Analysing clashes, fuel flags and routes…
+                  </div>
+                )}
+                {scheduleAnalytics?.error && (
+                  <p className="text-sm text-red-500">{scheduleAnalytics.error}</p>
+                )}
+                {scheduleAnalytics && !scheduleAnalytics.error && (
+                  <>
+                    <p className={`text-sm ${theme.cardMuted}`}>{scheduleAnalytics.ai_summary}</p>
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className={`rounded-lg border p-2 ${theme.tableBorder}`}>
+                        <p className="text-lg font-bold">{scheduleAnalytics.counts?.total ?? 0}</p>
+                        <p className={theme.cardMuted}>Jobs</p>
+                      </div>
+                      <div className={`rounded-lg border p-2 ${theme.tableBorder}`}>
+                        <p className="text-lg font-bold text-red-500">
+                          {scheduleAnalytics.counts?.clashes ?? 0}
+                        </p>
+                        <p className={theme.cardMuted}>Clashes</p>
+                      </div>
+                      <div className={`rounded-lg border p-2 ${theme.tableBorder}`}>
+                        <p className="text-lg font-bold text-amber-500">
+                          {scheduleAnalytics.counts?.fuel_flags ?? 0}
+                        </p>
+                        <p className={theme.cardMuted}>Fuel flags</p>
+                      </div>
+                    </div>
+                    {Array.isArray(scheduleAnalytics.clashes) && scheduleAnalytics.clashes.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-red-500">Clashes</p>
+                        {scheduleAnalytics.clashes.slice(0, 12).map((c: any, i: number) => (
+                          <p key={i} className="text-xs text-red-400/90">
+                            · {c.message}
+                            {c.jobs ? ` — ${c.jobs.filter(Boolean).join(" / ")}` : ""}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                    {Array.isArray(scheduleAnalytics.fuel_flags) &&
+                      scheduleAnalytics.fuel_flags.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-amber-500">Fuel vs schedule</p>
+                          {scheduleAnalytics.fuel_flags.map((f: any, i: number) => (
+                            <p key={i} className="text-xs text-amber-600/90">
+                              · {f.message}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    {Array.isArray(scheduleAnalytics.top_locations) &&
+                      scheduleAnalytics.top_locations.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium">Delivery locations</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {scheduleAnalytics.top_locations.map((l: any, i: number) => (
+                              <span
+                                key={i}
+                                className={`text-[10px] px-2 py-1 rounded-full border ${theme.tableBorder}`}
+                              >
+                                {l.name} · {l.count}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    {Array.isArray(scheduleAnalytics.optimisations) && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-emerald-500">Optimisations</p>
+                        <ul className="list-disc list-inside text-xs space-y-0.5">
+                          {scheduleAnalytics.optimisations.map((o: string, i: number) => (
+                            <li key={i} className={theme.cardMuted}>
+                              {o}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Schedule table */}
+              <div className={`rounded-xl border overflow-x-auto ${theme.tableBorder}`}>
+                <table className="w-full text-xs sm:text-sm">
+                  <thead>
+                    <tr className={`text-left ${theme.cardMuted} border-b ${theme.tableBorder}`}>
+                      <th className="py-2 px-3">When</th>
+                      <th className="py-2 px-3">Vehicle</th>
+                      <th className="py-2 px-3">Driver</th>
+                      <th className="py-2 px-3">Job / location</th>
+                      <th className="py-2 px-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(scheduleAnalytics?.schedules || schedules)
+                      .slice()
+                      .sort(
+                        (a: any, b: any) =>
+                          new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+                      )
+                      .map((s: any) => {
+                        const v =
+                          vehicles.find((x) => x.id === s.vehicle_id) ||
+                          (s.plate ? { plate: s.plate, vehicle_id: s.vehicle_fleet_id } : null);
+                        const d =
+                          drivers.find((x) => x.id === s.driver_id) ||
+                          (s.driver_name ? { name: s.driver_name } : null);
+                        return (
+                          <tr key={s.id} className={`border-b ${theme.tableBorder}`}>
+                            <td className="py-2 px-3 whitespace-nowrap">
+                              {new Date(s.start_time).toLocaleString("en-ZA", {
+                                day: "numeric",
+                                month: "short",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </td>
+                            <td className="py-2 px-3 font-mono">
+                              {s.plate || v?.plate || "—"}
+                            </td>
+                            <td className="py-2 px-3">{s.driver_name || d?.name || "—"}</td>
+                            <td className="py-2 px-3">
+                              {s.job_type ? `${s.job_type} · ` : ""}
+                              {s.location || s.job_description || "—"}
+                            </td>
+                            <td className="py-2 px-3 capitalize">{s.status}</td>
+                          </tr>
+                        );
+                      })}
+                    {(scheduleAnalytics?.schedules || schedules).length === 0 && (
+                      <tr>
+                        <td colSpan={5} className={`py-6 text-center ${theme.cardMuted}`}>
+                          No schedules yet — scan a dispatch / trip sheet to add jobs.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {dataError && (
         <div className="max-w-7xl mx-auto px-4 pt-4">

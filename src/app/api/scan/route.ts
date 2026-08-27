@@ -315,6 +315,39 @@ function isServiceDoc(docType: string | null | undefined): boolean {
   );
 }
 
+function isScheduleDoc(docType: string | null | undefined): boolean {
+  if (!docType) return false;
+  const t = String(docType).toUpperCase();
+  // Avoid treating pure service workshop docs as schedules
+  if (t.includes("SERVICE RECORD") || (t.includes("SERVICE") && t.includes("RECORD"))) return false;
+  if (t.includes("ROADWORTHY") || t.includes("COIDA") || t.includes("LICENSE")) return false;
+  if (t.includes("FUEL") || t.includes("PETROL") || t.includes("DIESEL") && t.includes("SLIP")) return false;
+  return (
+    t.includes("SCHEDULE") ||
+    t.includes("DISPATCH") ||
+    t.includes("DELIVERY") ||
+    t.includes("TRIP SHEET") ||
+    t.includes("TRIP") ||
+    t.includes("RUN SHEET") ||
+    t.includes("JOB SHEET") ||
+    t.includes("ROUTE") ||
+    t === "JOB" ||
+    t.includes("ASSIGNMENT")
+  );
+}
+
+function timesOverlap(
+  aStart: number,
+  aEnd: number | null,
+  bStart: number,
+  bEnd: number | null
+): boolean {
+  const aE = aEnd ?? aStart + 4 * 3600000; // default 4h window
+  const bE = bEnd ?? bStart + 4 * 3600000;
+  return aStart < bE && bStart < aE;
+}
+
+
 /** Typical service interval (km) for make/model via OpenRouter */
 async function researchServiceIntervalKm(
   make: string,
@@ -629,11 +662,12 @@ export async function POST(req: NextRequest) {
 Analyze this photo. It may be:
 - a vehicle certificate (COIDA, Roadworthy, License Disc),
 - a fuel slip / petrol station receipt / diesel receipt, OR
-- a service / maintenance document (job card, workshop invoice, service report, work order).
+- a service / maintenance document (job card, workshop invoice, service report, work order), OR
+- a schedule / dispatch / delivery / trip sheet / job assignment.
 
 Extract STRICT JSON only (no markdown, no explanation):
 {
-  "document_type": "COIDA" | "Roadworthy" | "License Disc" | "Fuel Slip" | "Service Record" | "Other" | "Unknown",
+  "document_type": "COIDA" | "Roadworthy" | "License Disc" | "Fuel Slip" | "Service Record" | "Schedule" | "Other" | "Unknown",
   "vehicle_plate": "string or null",
   "vehicle_id": "string or null (fleet internal ID if present, e.g. FLT-001)",
   "fleet_id": "string or null (same as vehicle_id / fleet unit number if shown)",
@@ -650,12 +684,21 @@ Extract STRICT JSON only (no markdown, no explanation):
   "transaction_date": "YYYY-MM-DD or null",
   "service_reason": "string or null (e.g. 5000km service, oil change, clutch, brakes)",
   "service_date": "YYYY-MM-DD or null",
-  "next_service_due_km": number or null
+  "next_service_due_km": number or null,
+  "job_type": "string or null (delivery, collection, shuttle, inspection, etc.)",
+  "job_date": "YYYY-MM-DD or null",
+  "job_time": "HH:MM or null (24h)",
+  "job_end_time": "HH:MM or null",
+  "driver_name": "string or null",
+  "driver_id": "string or null",
+  "location": "string or null (delivery/site address or area)",
+  "delivery_status": "scheduled" | "in_progress" | "completed" | "delivered" | "failed" | "cancelled" | null
 }
 
 Rules:
 - If this is a fuel slip / receipt, set document_type to "Fuel Slip" and fill liters, cost_zar, odometer, fuel_level_pct, station_name, fuel_type, transaction_date.
 - If this is a service job card / workshop invoice / service report, set document_type to "Service Record" and fill vehicle_plate, vehicle_id, fleet_id, odometer (current reading at service), service_reason, service_date, cost_zar if present, next_service_due_km if printed.
+- If this is a schedule / dispatch / delivery note / trip sheet / job assignment, set document_type to "Schedule" and fill job_type, job_date, job_time, job_end_time, vehicle_plate and/or vehicle_id/fleet_id, driver_name and/or driver_id, location, delivery_status.
 - fuel_level_pct is the tank percentage AFTER fill if printed; otherwise null.
 - price_per_litre is the unit price shown on the slip (R/L) if printed; otherwise null.
 - South African plates may appear as "WC 333-222", "333-222 WC", "CA 123-456", "GP 12 AB GP", etc. Extract the plate text as written.
@@ -757,6 +800,7 @@ Rules:
     // --- Flexible + fuzzy plate matching ---
     const supabase = createServerClient();
     let matchedVehicle = null;
+    let scheduleUpdatePayload: any = null;
     let matchMeta: { score: number; method: string } | null = null;
 
     const extractedPlate =
@@ -819,6 +863,203 @@ Rules:
                 console.error("Failed to update vehicle roadworthy:", updateErr);
               }
             }
+          }
+
+
+          // Schedule / dispatch / delivery path
+          if (isScheduleDoc(extracted.document_type) || String(extracted.document_type || "").toUpperCase() === "SCHEDULE") {
+            // Resolve vehicle: already matched, or by fleet/vehicle_id field
+            let scheduleVehicle = matchedVehicle;
+            if (!scheduleVehicle) {
+              const fleetHint =
+                (typeof extracted.fleet_id === "string" && extracted.fleet_id) ||
+                (typeof extracted.vehicle_id === "string" && extracted.vehicle_id) ||
+                null;
+              if (fleetHint && allVehicles) {
+                const hit = allVehicles.find(
+                  (v: any) =>
+                    String(v.vehicle_id || "").toUpperCase() === fleetHint.toUpperCase() ||
+                    String(v.plate || "").toUpperCase().replace(/\s/g, "") ===
+                      fleetHint.toUpperCase().replace(/\s/g, "")
+                );
+                if (hit) {
+                  scheduleVehicle = hit;
+                  matchedVehicle = hit;
+                }
+              }
+            }
+
+            // Resolve driver by name or id
+            let scheduleDriver: any = null;
+            const driverName =
+              typeof extracted.driver_name === "string" ? extracted.driver_name.trim() : null;
+            const driverIdExt =
+              typeof extracted.driver_id === "string" ? extracted.driver_id.trim() : null;
+            try {
+              const { data: allDrivers } = await supabase.from("drivers").select("*").limit(300);
+              if (allDrivers && allDrivers.length) {
+                if (driverIdExt) {
+                  scheduleDriver =
+                    allDrivers.find(
+                      (d: any) =>
+                        String(d.id) === driverIdExt ||
+                        String(d.license_number || "").toUpperCase() === driverIdExt.toUpperCase()
+                    ) || null;
+                }
+                if (!scheduleDriver && driverName) {
+                  const n = driverName.toUpperCase();
+                  scheduleDriver =
+                    allDrivers.find((d: any) => String(d.name || "").toUpperCase() === n) ||
+                    allDrivers.find((d: any) => String(d.name || "").toUpperCase().includes(n)) ||
+                    allDrivers.find((d: any) => n.includes(String(d.name || "").toUpperCase())) ||
+                    null;
+                }
+              }
+            } catch (de) {
+              console.error("Driver lookup for schedule failed:", de);
+            }
+
+            // Build start/end timestamps
+            const jobDate =
+              (typeof extracted.job_date === "string" && extracted.job_date) ||
+              (typeof extracted.transaction_date === "string" && extracted.transaction_date) ||
+              (typeof extracted.issue_date === "string" && extracted.issue_date) ||
+              new Date().toISOString().slice(0, 10);
+            const jobTime =
+              typeof extracted.job_time === "string" && /^\d{1,2}:\d{2}/.test(extracted.job_time)
+                ? extracted.job_time.slice(0, 5)
+                : "08:00";
+            const jobEndTime =
+              typeof extracted.job_end_time === "string" && /^\d{1,2}:\d{2}/.test(extracted.job_end_time)
+                ? extracted.job_end_time.slice(0, 5)
+                : null;
+
+            const startIso = new Date(`${jobDate}T${jobTime}:00`).toISOString();
+            let endIso: string | null = null;
+            if (jobEndTime) {
+              endIso = new Date(`${jobDate}T${jobEndTime}:00`).toISOString();
+              // if end before start, assume next day
+              if (new Date(endIso).getTime() <= new Date(startIso).getTime()) {
+                const e = new Date(endIso);
+                e.setDate(e.getDate() + 1);
+                endIso = e.toISOString();
+              }
+            } else {
+              const e = new Date(startIso);
+              e.setHours(e.getHours() + 4);
+              endIso = e.toISOString();
+            }
+
+            const jobType =
+              typeof extracted.job_type === "string" ? extracted.job_type : null;
+            const location =
+              typeof extracted.location === "string" ? extracted.location : null;
+            const deliveryStatusRaw = String(extracted.delivery_status || "scheduled").toLowerCase();
+            const allowedStatus = new Set([
+              "scheduled",
+              "in_progress",
+              "completed",
+              "cancelled",
+              "delivered",
+              "failed",
+            ]);
+            const status = allowedStatus.has(deliveryStatusRaw) ? deliveryStatusRaw : "scheduled";
+            const jobDescription = [jobType, location].filter(Boolean).join(" · ") || "Scheduled job";
+
+            const clashes: any[] = [];
+            if (scheduleVehicle || scheduleDriver) {
+              try {
+                const startMs = new Date(startIso).getTime();
+                const endMs = endIso ? new Date(endIso).getTime() : null;
+                const { data: existing } = await supabase
+                  .from("schedules")
+                  .select("*")
+                  .in("status", ["scheduled", "in_progress"])
+                  .limit(200);
+                for (const s of existing || []) {
+                  const sStart = new Date(s.start_time).getTime();
+                  const sEnd = s.end_time ? new Date(s.end_time).getTime() : null;
+                  if (!timesOverlap(startMs, endMs, sStart, sEnd)) continue;
+                  if (scheduleVehicle && s.vehicle_id === scheduleVehicle.id) {
+                    clashes.push({
+                      type: "vehicle",
+                      message: `Vehicle ${scheduleVehicle.plate} already booked in this window`,
+                      existing_schedule_id: s.id,
+                      existing_start: s.start_time,
+                      existing_end: s.end_time,
+                      existing_job: s.job_description,
+                      plate: scheduleVehicle.plate,
+                    });
+                  }
+                  if (scheduleDriver && s.driver_id === scheduleDriver.id) {
+                    clashes.push({
+                      type: "driver",
+                      message: `Driver ${scheduleDriver.name} already assigned in this window`,
+                      existing_schedule_id: s.id,
+                      existing_start: s.start_time,
+                      existing_end: s.end_time,
+                      existing_job: s.job_description,
+                      driver_name: scheduleDriver.name,
+                    });
+                  }
+                }
+              } catch (ce) {
+                console.error("Clash check failed:", ce);
+              }
+            }
+
+            let createdSchedule: any = null;
+            if (scheduleVehicle) {
+              const insertRow: any = {
+                vehicle_id: scheduleVehicle.id,
+                driver_id: scheduleDriver?.id || scheduleVehicle.assigned_driver_id || null,
+                start_time: startIso,
+                end_time: endIso,
+                job_description: jobDescription,
+                status,
+                location,
+                job_type: jobType,
+              };
+              const { data: created, error: schErr } = await supabase
+                .from("schedules")
+                .insert(insertRow)
+                .select("*")
+                .single();
+              if (schErr) {
+                console.error("Schedule insert failed:", schErr);
+              } else {
+                createdSchedule = created;
+                // Keep vehicle↔driver assignment in sync when we know both
+                if (scheduleDriver?.id) {
+                  await supabase
+                    .from("vehicles")
+                    .update({
+                      assigned_driver_id: scheduleDriver.id,
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq("id", scheduleVehicle.id);
+                  await supabase
+                    .from("drivers")
+                    .update({ status: "assigned" })
+                    .eq("id", scheduleDriver.id);
+                }
+              }
+            }
+
+            scheduleUpdatePayload = {
+              created: createdSchedule,
+              clashes,
+              vehicle_plate: scheduleVehicle?.plate || extractedPlate,
+              fleet_id: scheduleVehicle?.vehicle_id || extracted.fleet_id || extracted.vehicle_id,
+              driver_name: scheduleDriver?.name || driverName,
+              driver_id: scheduleDriver?.id || null,
+              job_type: jobType,
+              location,
+              start_time: startIso,
+              end_time: endIso,
+              status,
+              has_clashes: clashes.length > 0,
+            };
           }
 
           // Service record path — update odometer, last service, AI service interval
@@ -1337,7 +1578,11 @@ Rules:
     }
 
     const serviceUpdate = (matchedVehicle as any)?.__serviceUpdate || null;
+    const scheduleUpdate = scheduleUpdatePayload;
     const isService = isServiceDoc(extracted.document_type);
+    const isSchedule =
+      isScheduleDoc(extracted.document_type) ||
+      String(extracted.document_type || "").toUpperCase() === "SCHEDULE";
 
     return NextResponse.json({
       success: true,
@@ -1347,7 +1592,9 @@ Rules:
       researched_avg_l_per_100km: researchedAvg,
       isFuelSlip: fuelSlipDetected,
       isServiceRecord: isService,
+      isSchedule,
       serviceUpdate,
+      scheduleUpdate,
       priceVerification,
       fraudAlert,
       matchInfo: {

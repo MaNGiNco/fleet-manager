@@ -88,10 +88,23 @@ export interface Schedule {
   vehicle_id: string;
   driver_id: string | null;
   start_time: string;
-  end_time: string;
+  end_time: string | null;
   job_description: string;
-  status: "scheduled" | "in_progress" | "completed" | "cancelled";
+  status: "scheduled" | "in_progress" | "completed" | "cancelled" | "delivered" | "failed";
+  location: string | null;
+  job_type: string | null;
   created_at: string;
+}
+
+export interface ScheduleClash {
+  type: "vehicle" | "driver";
+  message: string;
+  existing_schedule_id: string;
+  existing_start: string;
+  existing_end: string | null;
+  existing_job: string | null;
+  plate?: string;
+  driver_name?: string;
 }
 
 export interface RiskScore {
