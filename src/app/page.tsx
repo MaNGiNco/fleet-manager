@@ -45,7 +45,7 @@ const DEMO_VEHICLES: Vehicle[] = [
     fuel_efficiency_l_per_100km: 9.2,
     current_fuel_level_pct: 62,
     last_refuel_date: "2026-08-18",
-    assigned_driver_id: null,
+    assigned_driver_id: "d1",
     notes: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -68,7 +68,7 @@ const DEMO_VEHICLES: Vehicle[] = [
     fuel_efficiency_l_per_100km: 10.5,
     current_fuel_level_pct: 40,
     last_refuel_date: "2026-08-10",
-    assigned_driver_id: null,
+    assigned_driver_id: "d2",
     notes: "Clutch replacement",
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -91,7 +91,7 @@ const DEMO_VEHICLES: Vehicle[] = [
     fuel_efficiency_l_per_100km: 8.8,
     current_fuel_level_pct: 75,
     last_refuel_date: "2026-08-20",
-    assigned_driver_id: null,
+    assigned_driver_id: "d4",
     notes: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -114,7 +114,7 @@ const DEMO_VEHICLES: Vehicle[] = [
     fuel_efficiency_l_per_100km: 12.1,
     current_fuel_level_pct: 28,
     last_refuel_date: "2026-08-12",
-    assigned_driver_id: null,
+    assigned_driver_id: "d6",
     notes: "Front end damage – insurance claim open",
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -153,6 +153,8 @@ export default function DashboardPage() {
   const [selected, setSelected] = useState<Vehicle | null>(null);
   /** Where the vehicle was opened from — controls which AI panel is shown */
   const [selectedContext, setSelectedContext] = useState<"risk" | "fuel" | "other" | null>(null);
+  const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
+  const [driverSheetClosing, setDriverSheetClosing] = useState(false);
   const [analytics, setAnalytics] = useState<any>(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [fuelAnalytics, setFuelAnalytics] = useState<any>(null);
@@ -181,6 +183,21 @@ export default function DashboardPage() {
       setServiceAnalytics(null);
       setSheetClosing(false);
     }, 240);
+  };
+
+  const closeDriverSheet = () => {
+    if (driverSheetClosing) return;
+    setDriverSheetClosing(true);
+    window.setTimeout(() => {
+      setSelectedDriver(null);
+      setDriverSheetClosing(false);
+    }, 240);
+  };
+
+  const openDriver = (d: Driver) => {
+    setSelected(null);
+    setSelectedContext(null);
+    setSelectedDriver(d);
   };
 
   // Load only the analytics relevant to where the vehicle was opened from
@@ -320,6 +337,21 @@ export default function DashboardPage() {
           { id: "d10", name: "Zanele Sithole", license_number: "GP334455", phone: "0820000010", status: "available", created_at: new Date().toISOString() },
           { id: "d11", name: "David Naidoo", license_number: "KZN667788", phone: "0831110011", status: "assigned", created_at: new Date().toISOString() },
           { id: "d12", name: "Elmarie du Plessis", license_number: "WC990011", phone: "0842220012", status: "off", created_at: new Date().toISOString() },
+        ]);
+
+        // Demo schedules so driver sheet has data offline
+        const now = Date.now();
+        const hr = 3600000;
+        setSchedules([
+          { id: "s1", vehicle_id: "1", driver_id: "d1", start_time: new Date(now + 2*hr).toISOString(), end_time: new Date(now + 6*hr).toISOString(), job_description: "150km delivery Gauteng", status: "scheduled", created_at: new Date().toISOString() },
+          { id: "s2", vehicle_id: "1", driver_id: "d1", start_time: new Date(now - 24*hr).toISOString(), end_time: new Date(now - 20*hr).toISOString(), job_description: "80km local runs", status: "completed", created_at: new Date().toISOString() },
+          { id: "s3", vehicle_id: "3", driver_id: "d2", start_time: new Date(now + 5*hr).toISOString(), end_time: new Date(now + 10*hr).toISOString(), job_description: "220km Cape corridor", status: "scheduled", created_at: new Date().toISOString() },
+          { id: "s4", vehicle_id: "3", driver_id: "d2", start_time: new Date(now + 28*hr).toISOString(), end_time: new Date(now + 34*hr).toISOString(), job_description: "120km depot shuttle", status: "scheduled", created_at: new Date().toISOString() },
+          { id: "s5", vehicle_id: "5", driver_id: "d4", start_time: new Date(now + 3*hr).toISOString(), end_time: new Date(now + 8*hr).toISOString(), job_description: "95km client collection", status: "scheduled", created_at: new Date().toISOString() },
+          { id: "s6", vehicle_id: "4", driver_id: "d6", start_time: new Date(now - 5*hr).toISOString(), end_time: new Date(now - 1*hr).toISOString(), job_description: "60km urban drops", status: "completed", created_at: new Date().toISOString() },
+          { id: "s7", vehicle_id: "1", driver_id: "d8", start_time: new Date(now + 48*hr).toISOString(), end_time: new Date(now + 54*hr).toISOString(), job_description: "180km inter-depot", status: "scheduled", created_at: new Date().toISOString() },
+          { id: "s8", vehicle_id: "3", driver_id: "d9", start_time: new Date(now + 12*hr).toISOString(), end_time: new Date(now + 16*hr).toISOString(), job_description: "110km site inspection", status: "scheduled", created_at: new Date().toISOString() },
+          { id: "s9", vehicle_id: "5", driver_id: "d11", start_time: new Date(now + 30*hr).toISOString(), end_time: new Date(now + 36*hr).toISOString(), job_description: "140km bulk drop", status: "scheduled", created_at: new Date().toISOString() },
         ]);
       }
     } catch (err: any) {
@@ -572,7 +604,7 @@ export default function DashboardPage() {
             Risk Ranking (Service + Roadworthy + Income Exposure)
           </h2>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {(showAllRisk ? risks : risks.slice(0, 9)).map((r) => {
+            {(showAllRisk ? risks : risks.slice(0, 6)).map((r) => {
               const v = vehicles.find((x) => x.id === r.vehicle_id);
               if (!v) return null;
               return (
@@ -588,7 +620,7 @@ export default function DashboardPage() {
               );
             })}
           </div>
-          {risks.length > 9 && (
+          {risks.length > 6 && (
             <div className="mt-4 text-center">
               <button
                 onClick={() => setShowAllRisk(!showAllRisk)}
@@ -600,7 +632,7 @@ export default function DashboardPage() {
                   </>
                 ) : (
                   <>
-                    <ChevronDown className="w-5 h-5" /> See more ({risks.length - 9} more)
+                    <ChevronDown className="w-5 h-5" /> See more ({risks.length - 6} more)
                   </>
                 )}
               </button>
@@ -660,7 +692,7 @@ export default function DashboardPage() {
 
           {/* Mobile: stacked cards */}
           <div className="md:hidden space-y-3">
-            {(showAllFuel ? fuelImpacts : fuelImpacts.slice(0, 10)).map((f) => (
+            {(showAllFuel ? fuelImpacts : fuelImpacts.slice(0, 6)).map((f) => (
               <div
                 key={f.vehicle_id}
                 className={`${theme.card} rounded-xl p-4 ${
@@ -718,7 +750,7 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {(showAllFuel ? fuelImpacts : fuelImpacts.slice(0, 10)).map((f) => (
+                {(showAllFuel ? fuelImpacts : fuelImpacts.slice(0, 6)).map((f) => (
                   <tr
                     key={f.vehicle_id}
                     className={`border-b ${theme.rowBorder} ${
@@ -765,7 +797,7 @@ export default function DashboardPage() {
             </table>
           </div>
 
-          {fuelImpacts.length > 10 && (
+          {fuelImpacts.length > 6 && (
             <div className="mt-4 text-center">
               <button
                 onClick={() => setShowAllFuel(!showAllFuel)}
@@ -777,7 +809,7 @@ export default function DashboardPage() {
                   </>
                 ) : (
                   <>
-                    <ChevronDown className="w-5 h-5" /> See more ({fuelImpacts.length - 10} more)
+                    <ChevronDown className="w-5 h-5" /> See more ({fuelImpacts.length - 6} more)
                   </>
                 )}
               </button>
@@ -794,7 +826,7 @@ export default function DashboardPage() {
 
           {/* Mobile cards */}
           <div className="md:hidden space-y-3">
-            {(showAllDrivers ? drivers : drivers.slice(0, 10)).map((d) => {
+            {(showAllDrivers ? drivers : drivers.slice(0, 6)).map((d) => {
               const assignedVehicle = vehicles.find((v) => v.assigned_driver_id === d.id);
               const driverSchedules = schedules
                 .filter((s) => s.driver_id === d.id)
@@ -809,7 +841,13 @@ export default function DashboardPage() {
               return (
                 <div key={d.id} className={`${theme.card} rounded-xl p-4`}>
                   <div className="flex items-start justify-between gap-2">
-                    <p className="font-semibold text-base">{d.name}</p>
+                    <button
+                      type="button"
+                      onClick={() => openDriver(d)}
+                      className="font-semibold text-base text-left text-cyan-500 hover:underline min-h-[44px]"
+                    >
+                      {d.name}
+                    </button>
                     <span className={`px-2 py-1 rounded text-xs font-medium ${statusColor}`}>
                       {d.status === "off" ? "Off day" : d.status}
                     </span>
@@ -860,7 +898,7 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {(showAllDrivers ? drivers : drivers.slice(0, 10)).map((d) => {
+                {(showAllDrivers ? drivers : drivers.slice(0, 6)).map((d) => {
                   const assignedVehicle = vehicles.find((v) => v.assigned_driver_id === d.id);
                   const driverSchedules = schedules
                     .filter((s) => s.driver_id === d.id)
@@ -874,7 +912,15 @@ export default function DashboardPage() {
                       : "bg-slate-600 text-slate-200";
                   return (
                     <tr key={d.id} className={`border-b ${theme.rowBorder}`}>
-                      <td className="py-2.5 pr-4 font-medium">{d.name}</td>
+                      <td className="py-2.5 pr-4 font-medium">
+                        <button
+                          type="button"
+                          onClick={() => openDriver(d)}
+                          className="text-cyan-500 hover:underline text-left"
+                        >
+                          {d.name}
+                        </button>
+                      </td>
                       <td className="py-2.5 pr-4">
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusColor}`}>
                           {d.status === "off" ? "Off day" : d.status}
@@ -921,7 +967,7 @@ export default function DashboardPage() {
             </table>
           </div>
 
-          {drivers.length > 10 && (
+          {drivers.length > 6 && (
             <div className="mt-4 text-center">
               <button
                 onClick={() => setShowAllDrivers(!showAllDrivers)}
@@ -933,7 +979,7 @@ export default function DashboardPage() {
                   </>
                 ) : (
                   <>
-                    <ChevronDown className="w-5 h-5" /> See more ({drivers.length - 10} more)
+                    <ChevronDown className="w-5 h-5" /> See more ({drivers.length - 6} more)
                   </>
                 )}
               </button>
@@ -1312,6 +1358,191 @@ export default function DashboardPage() {
           );
         })()}
       </main>
+
+
+        {selectedDriver && (() => {
+          const d = selectedDriver;
+          const assignedVehicle = vehicles.find((v) => v.assigned_driver_id === d.id);
+          const driverSchedules = schedules
+            .filter((s) => s.driver_id === d.id)
+            .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+          const vehicleSchedules = assignedVehicle
+            ? schedules
+                .filter((s) => s.vehicle_id === assignedVehicle.id)
+                .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+            : [];
+          // Merge unique by id for "related to this driver or their vehicle"
+          const byId = new Map<string, Schedule>();
+          [...driverSchedules, ...vehicleSchedules].forEach((s) => byId.set(s.id, s));
+          const allRelated = Array.from(byId.values()).sort(
+            (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+          );
+          const upcoming = allRelated.filter((s) => new Date(s.start_time).getTime() >= Date.now() - 3600000);
+          const past = allRelated.filter((s) => new Date(s.start_time).getTime() < Date.now() - 3600000).reverse();
+
+          return (
+            <>
+              <div
+                className={`sheet-backdrop fixed inset-0 bg-black/45 z-40 ${
+                  driverSheetClosing ? "sheet-closing" : ""
+                }`}
+                onClick={closeDriverSheet}
+              />
+              <div
+                className={`sheet-panel fixed bottom-0 left-0 right-0 z-50 ${theme.popup} border-t rounded-t-2xl p-5 shadow-2xl max-h-[75vh] overflow-y-auto pb-8 ${
+                  driverSheetClosing ? "sheet-closing" : ""
+                }`}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Driver schedule details"
+              >
+                <div className="mx-auto w-12 h-1.5 rounded-full bg-slate-500/40 mb-4" />
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs text-violet-500 mb-1">Driver</p>
+                    <p className="font-semibold text-xl">{d.name}</p>
+                    <p className={`text-sm capitalize ${theme.cardMuted}`}>
+                      {d.status === "off" ? "Off day" : d.status}
+                      {d.license_number ? ` · Lic ${d.license_number}` : ""}
+                    </p>
+                  </div>
+                  <button
+                    onClick={closeDriverSheet}
+                    className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg ${theme.btn} transition-transform active:scale-95`}
+                    aria-label="Close"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className={`mt-4 space-y-2 text-sm border-t ${theme.tableBorder} pt-4`}>
+                  <p>
+                    <span className={theme.cardMuted}>Phone: </span>
+                    {d.phone ? (
+                      <a href={`tel:${d.phone}`} className="text-cyan-500 font-medium">
+                        {d.phone}
+                      </a>
+                    ) : (
+                      "—"
+                    )}
+                  </p>
+                  <p>
+                    <span className={theme.cardMuted}>Assigned vehicle: </span>
+                    {assignedVehicle ? (
+                      <button
+                        type="button"
+                        className="text-cyan-500 font-medium"
+                        onClick={() => {
+                          setSelectedDriver(null);
+                          setSelectedContext("risk");
+                          setSelected(assignedVehicle);
+                        }}
+                      >
+                        {assignedVehicle.plate} · {assignedVehicle.vehicle_id} · {assignedVehicle.make}{" "}
+                        {assignedVehicle.model}
+                      </button>
+                    ) : (
+                      "None assigned"
+                    )}
+                  </p>
+                </div>
+
+                <div className={`mt-4 rounded-xl border p-3 space-y-2 ${theme.tableBorder}`}>
+                  <p className="text-sm font-semibold flex items-center gap-2">
+                    <CalendarClock className="w-4 h-4 text-violet-500" />
+                    Driver schedule
+                  </p>
+                  {driverSchedules.length === 0 ? (
+                    <p className={`text-xs ${theme.cardMuted}`}>No jobs scheduled for this driver.</p>
+                  ) : (
+                    <ul className="space-y-2 text-xs">
+                      {driverSchedules.map((s) => {
+                        const veh = vehicles.find((v) => v.id === s.vehicle_id);
+                        return (
+                          <li
+                            key={s.id}
+                            className={`p-2 rounded-lg border ${theme.tableBorder}`}
+                          >
+                            <p className="font-medium">
+                              {s.job_description || "Job"} ·{" "}
+                              <span className="capitalize">{s.status}</span>
+                            </p>
+                            <p className={theme.cardMuted}>
+                              {new Date(s.start_time).toLocaleString("en-ZA", {
+                                weekday: "short",
+                                day: "numeric",
+                                month: "short",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                              {s.end_time
+                                ? ` → ${new Date(s.end_time).toLocaleTimeString("en-ZA", {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}`
+                                : ""}
+                            </p>
+                            <p className={theme.cardMuted}>
+                              Vehicle: {veh ? `${veh.plate} (${veh.vehicle_id})` : s.vehicle_id}
+                            </p>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+
+                {assignedVehicle && (
+                  <div className={`mt-3 rounded-xl border p-3 space-y-2 ${theme.tableBorder}`}>
+                    <p className="text-sm font-semibold flex items-center gap-2">
+                      <CalendarClock className="w-4 h-4 text-cyan-500" />
+                      Vehicle schedule ({assignedVehicle.plate})
+                    </p>
+                    {vehicleSchedules.length === 0 ? (
+                      <p className={`text-xs ${theme.cardMuted}`}>No jobs on this vehicle&apos;s calendar.</p>
+                    ) : (
+                      <ul className="space-y-2 text-xs">
+                        {vehicleSchedules.map((s) => {
+                          const drv = drivers.find((x) => x.id === s.driver_id);
+                          return (
+                            <li
+                              key={`v-${s.id}`}
+                              className={`p-2 rounded-lg border ${theme.tableBorder}`}
+                            >
+                              <p className="font-medium">
+                                {s.job_description || "Job"} ·{" "}
+                                <span className="capitalize">{s.status}</span>
+                              </p>
+                              <p className={theme.cardMuted}>
+                                {new Date(s.start_time).toLocaleString("en-ZA", {
+                                  weekday: "short",
+                                  day: "numeric",
+                                  month: "short",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </p>
+                              <p className={theme.cardMuted}>
+                                Driver on job: {drv?.name || "Unassigned"}
+                              </p>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                <button
+                  onClick={closeDriverSheet}
+                  className="mt-5 w-full min-h-[48px] rounded-xl bg-violet-600 hover:bg-violet-500 active:scale-[0.98] transition-transform text-white font-medium"
+                >
+                  Close
+                </button>
+              </div>
+            </>
+          );
+        })()}
 
       {/* Bottom navigation – mobile first */}
       <nav className={`fixed bottom-0 left-0 right-0 z-30 ${theme.nav} safe-area-pb`}>
