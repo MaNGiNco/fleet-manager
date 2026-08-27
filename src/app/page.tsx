@@ -257,11 +257,12 @@ export default function DashboardPage() {
           capacity_liters: data.reserve.capacity_liters,
         });
       }
+      const liters = Number(data.reserve?.current_liters ?? data.expected_liters ?? 0);
       setFuelReserveMsg(
         data.message ||
           (fuelReserveMode === "budget"
-            ? `Budget set. Expected ~${data.expected_liters} L @ R${data.researched_price_per_litre}/L`
-            : "Bulk tank level updated")
+            ? `Budget set → ${liters.toLocaleString()} L available @ R${data.researched_price_per_litre}/L`
+            : `Bulk tank updated → ${liters.toLocaleString()} L`)
       );
       await loadData();
     } catch (e: any) {
@@ -1012,13 +1013,19 @@ export default function DashboardPage() {
           >
             <p className={`text-xs ${theme.cardMuted} uppercase`}>Fuel Reserve</p>
             <p className="text-2xl font-bold text-cyan-600">
-              {fuelReserveMeta.mode === "budget" && fuelReserveMeta.remaining_budget_zar != null
-                ? `R${Number(fuelReserveMeta.remaining_budget_zar).toLocaleString()}`
-                : `${fuelReserve.toLocaleString()} L`}
+              {Number(fuelReserve || 0).toLocaleString()} L
             </p>
-            {fuelReserveMeta.mode === "budget" && (
+            {fuelReserveMeta.mode === "budget" &&
+              (fuelReserveMeta.remaining_budget_zar != null ||
+                fuelReserveMeta.budget_zar != null) && (
               <p className={`text-[10px] ${theme.cardMuted}`}>
-                ≈ {fuelReserve.toLocaleString()} L budget mode
+                Budget R
+                {Number(
+                  fuelReserveMeta.remaining_budget_zar ??
+                    fuelReserveMeta.budget_zar ??
+                    0
+                ).toLocaleString()}{" "}
+                remaining
               </p>
             )}
           </button>
@@ -2126,7 +2133,7 @@ export default function DashboardPage() {
               <div>
                 <p className="font-semibold">Bulk fuel reserve</p>
                 <p className={`text-xs ${theme.cardMuted}`}>
-                  Tank litres or Rand budget (AI price → expected litres)
+                  Enter tank litres or a Rand budget — final reserve is always stored &amp; shown in litres
                 </p>
               </div>
               <button
@@ -2183,8 +2190,9 @@ export default function DashboardPage() {
                   className={`w-full min-h-[48px] rounded-lg border px-3 ${theme.tableBorder} bg-transparent`}
                 />
                 <span className={`text-[10px] ${theme.cardMuted}`}>
-                  AI will research current diesel price and estimate litres from this budget. Fuel slip
-                  costs are deducted from remaining budget.
+                  AI researches current diesel price and converts this Rand budget into litres. The
+                  dashboard always displays and tracks reserve in litres. Fuel-slip costs reduce the
+                  remaining budget (and thus the litre equivalent).
                 </span>
               </label>
             )}
