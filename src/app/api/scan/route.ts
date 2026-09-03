@@ -3,7 +3,14 @@ import { createServerClient } from "@/lib/supabase";
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const VISION_MODEL = "openai/gpt-4o";
+// openai/gpt-4o alias was removed on OpenRouter (only dated snapshots remain).
+// Prefer a current vision-capable model; fall back if one provider is unavailable.
+const VISION_MODELS = [
+  "google/gemini-2.5-flash",
+  "openai/gpt-4o-mini",
+  "openai/gpt-4.1-mini",
+  "openai/gpt-4o-2024-11-20",
+] as const;
 const TEXT_MODEL = "openai/gpt-4o-mini";
 
 // ---------------------------------------------------------------------------
@@ -708,63 +715,123 @@ Rules:
 - South African plates may appear as "WC 333-222", "333-222 WC", "CA 123-456", "GP 12 AB GP", etc. Extract the plate text as written.
 - If a field cannot be read confidently, use null.`;
 
-    let visionResponse: Response;
-    try {
-      visionResponse = await fetch(OPENROUTER_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "https://fleet-manager.vercel.app",
-          "X-Title": "Fleet Manager Document Scanner",
-        },
-        body: JSON.stringify({
-          model: VISION_MODEL,
-          messages: [
+    const imageDataUrl = `data:${mimeType};base64,${imageBase64}`;
+    const visionPayloadBase = {
+      messages: [
+        {
+          role: "user" as const,
+          content: [
+            { type: "text" as const, text: prompt },
             {
-              role: "user",
-              content: [
-                { type: "text", text: prompt },
-                {
-                  type: "image_url",
-                  image_url: {
-                    url: `data:${mimeType};base64,${imageBase64}`,
-                  },
-                },
-              ],
+              type: "image_url" as const,
+              image_url: {
+                url: imageDataUrl,
+              },
             },
           ],
-          max_tokens: 700,
-          temperature: 0.1,
-        }),
-      });
-    } catch (networkErr: any) {
-      console.error("OpenRouter network error:", networkErr);
-      return NextResponse.json(
-        { error: "Failed to reach vision API. Please try again.", details: networkErr?.message },
-        { status: 502 }
-      );
+        },
+      ],
+      max_tokens: 900,
+      temperature: 0.1,
+    };
+
+    let data: any = null;
+    let lastError: { status: number; details: string; model: string } | null = null;
+
+    for (const model of VISION_MODELS) {
+      let visionResponse: Response;
+      try {
+        visionResponse = await fetch(OPENROUTER_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer":
+              process.env.NEXT_PUBLIC_SITE_URL || "https://fleet-manager.vercel.app",
+            "X-Title": "Fleet Manager Document Scanner",
+          },
+          body: JSON.stringify({ ...visionPayloadBase, model }),
+        });
+      } catch (networkErr: any) {
+        console.error("OpenRouter network error:", model, networkErr);
+        lastError = {
+          status: 502,
+          details: networkErr?.message || "Network error",
+          model,
+        };
+        continue;
+      }
+
+      if (!visionResponse.ok) {
+        const errText = await visionResponse.text().catch(() => "");
+        console.error("OpenRouter error:", model, visionResponse.status, errText);
+        lastError = {
+          status: visionResponse.status,
+          details: errText.slice(0, 800),
+          model,
+        };
+        // Retry next model on model-not-found / invalid model / provider outage
+        if (
+          visionResponse.status === 400 ||
+          visionResponse.status === 404 ||
+          visionResponse.status === 429 ||
+          visionResponse.status === 502 ||
+          visionResponse.status === 503
+        ) {
+          continue;
+        }
+        break;
+      }
+
+      try {
+        data = await visionResponse.json();
+      } catch {
+        lastError = {
+          status: 502,
+          details: "Vision API returned invalid JSON",
+          model,
+        };
+        continue;
+      }
+
+      // OpenRouter sometimes returns 200 with an error object
+      if (data?.error) {
+        const msg =
+          typeof data.error === "string"
+            ? data.error
+            : data.error?.message || JSON.stringify(data.error);
+        console.error("OpenRouter body error:", model, msg);
+        lastError = { status: 502, details: String(msg).slice(0, 800), model };
+        continue;
+      }
+
+      // Success
+      lastError = null;
+      break;
     }
 
-    if (!visionResponse.ok) {
-      const errText = await visionResponse.text().catch(() => "");
-      console.error("OpenRouter error:", visionResponse.status, errText);
+    if (!data || lastError) {
+      let friendly =
+        "Vision API request failed. Check OPENROUTER_API_KEY and account credits.";
+      const details = lastError?.details || "";
+      if (/invalid model|model not found|not found/i.test(details)) {
+        friendly =
+          "Vision model unavailable on OpenRouter. The app will try alternate models on retry.";
+      } else if (/credit|balance|payment|quota|limit/i.test(details)) {
+        friendly =
+          "OpenRouter account has insufficient credits or hit a rate limit. Top up at openrouter.ai.";
+      } else if (/unauthorized|invalid api key|401/i.test(details) || lastError?.status === 401) {
+        friendly =
+          "Invalid or missing OPENROUTER_API_KEY. Set it in Vercel environment variables.";
+      }
       return NextResponse.json(
         {
-          error: "Vision API request failed",
-          status: visionResponse.status,
-          details: errText.slice(0, 500),
+          error: friendly,
+          status: lastError?.status || 502,
+          details: details.slice(0, 500),
+          tried_models: [...VISION_MODELS],
+          last_model: lastError?.model || null,
         },
-        { status: 502 }
-      );
-    }
-
-    let data: any;
-    try {
-      data = await visionResponse.json();
-    } catch {
-      return NextResponse.json(
-        { error: "Vision API returned invalid JSON" },
         { status: 502 }
       );
     }

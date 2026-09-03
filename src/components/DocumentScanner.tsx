@@ -169,18 +169,71 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
   };
 
 
+  /** Downscale / recompress phone photos so vision requests stay under provider limits */
+  const compressImage = (file: File, maxEdge = 1600, quality = 0.82): Promise<{ base64: string; mimeType: string; preview: string }> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Could not read image file"));
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        // HEIC/HEIF and exotic types: send as-is (server accepts); browsers often can't canvas them
+        const type = (file.type || "").toLowerCase();
+        if (type.includes("heic") || type.includes("heif")) {
+          const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
+          resolve({ base64, mimeType: type || "image/heic", preview: dataUrl });
+          return;
+        }
+        const img = new Image();
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > maxEdge || height > maxEdge) {
+            const scale = maxEdge / Math.max(width, height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
+            resolve({ base64, mimeType: type || "image/jpeg", preview: dataUrl });
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          const outType = "image/jpeg";
+          const outUrl = canvas.toDataURL(outType, quality);
+          const base64 = outUrl.split(",")[1] || "";
+          resolve({ base64, mimeType: outType, preview: outUrl });
+        };
+        img.onerror = () => {
+          const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
+          resolve({ base64, mimeType: type || "image/jpeg", preview: dataUrl });
+        };
+        img.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleFile = async (file: File) => {
     setError(null);
     setResult(null);
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const dataUrl = e.target?.result as string;
-      setPreview(dataUrl);
-      const base64 = dataUrl.split(",")[1];
-      const mime = file.type || "image/jpeg";
-      await runScan(base64, mime);
-    };
-    reader.readAsDataURL(file);
+    setLoading(true);
+    try {
+      if (!file.type.startsWith("image/") && file.type) {
+        throw new Error("Please select an image file (JPEG, PNG, WebP, or HEIC).");
+      }
+      if (file.size > 12 * 1024 * 1024) {
+        throw new Error("Image is larger than 12 MB. Please take a closer photo or reduce quality.");
+      }
+      const { base64, mimeType, preview } = await compressImage(file);
+      setPreview(preview);
+      await runScan(base64, mimeType);
+    } catch (err: any) {
+      setError(err.message || "Could not process image");
+      setLoading(false);
+    }
   };
 
   const runScan = async (base64: string, mimeType: string) => {
@@ -192,7 +245,13 @@ export default function DocumentScanner({ onMatch }: { onMatch?: (v: any) => voi
         body: JSON.stringify({ imageBase64: base64, mimeType }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Scan failed");
+      if (!res.ok) {
+        const detail =
+          typeof data.details === "string" && data.details
+            ? ` (${data.details.slice(0, 180)})`
+            : "";
+        throw new Error((data.error || "Scan failed") + detail);
+      }
       setResult(data);
       if (data.matchedVehicle && onMatch) onMatch(data.matchedVehicle);
     } catch (err: any) {
