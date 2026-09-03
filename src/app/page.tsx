@@ -657,93 +657,102 @@ export default function DashboardPage() {
   const theme = lightMode
     ? {
         page: "min-h-screen bg-slate-100 text-slate-900 pb-24",
-        header: "border-b border-slate-200 bg-white/95 backdrop-blur sticky top-0 z-20",
+        header:
+          "border-b border-slate-200/90 bg-white/90 backdrop-blur-xl sticky top-0 z-20 shadow-sm",
         muted: "text-slate-500",
-        card: "bg-white border border-slate-200",
+        card: "bg-white border border-slate-200/90 shadow-sm",
         cardMuted: "text-slate-500",
         tableBorder: "border-slate-200",
         rowBorder: "border-slate-100",
-        btn: "bg-slate-200 hover:bg-slate-300 text-slate-800",
-        seeMore: "bg-slate-200 hover:bg-slate-300 border-slate-300 text-slate-800",
-        nav: "bg-white border-t border-slate-200",
+        btn: "bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200",
+        seeMore:
+          "bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-800 rounded-xl",
+        nav: "bg-white/95 backdrop-blur-xl border-t border-slate-200/90 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.08)]",
         navActive: "text-cyan-600",
         navIdle: "text-slate-500",
         summary: "bg-slate-50 border-b border-slate-200 text-slate-700",
-        error: "bg-red-50 border-red-300 text-red-800",
-        popup: "bg-white border-slate-300 text-slate-900",
+        error: "bg-rose-50 border-rose-200 text-rose-800",
+        popup: "bg-white border-slate-200 text-slate-900 shadow-2xl",
       }
     : {
-        page: "min-h-screen bg-slate-950 text-slate-100 pb-24",
-        header: "border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-20",
+        page: "min-h-screen bg-[#070B14] text-slate-100 pb-24 ops-grid-bg",
+        header:
+          "border-b border-[#1E2A3F]/90 bg-[#0D1320]/85 backdrop-blur-xl sticky top-0 z-20",
         muted: "text-slate-400",
-        card: "bg-slate-900 border border-slate-700",
+        card: "bg-[#0D1320] border border-[#1E2A3F] shadow-ops-sm",
         cardMuted: "text-slate-400",
-        tableBorder: "border-slate-700",
-        rowBorder: "border-slate-800",
-        btn: "bg-slate-800 hover:bg-slate-700 text-slate-100",
-        seeMore: "bg-slate-800 hover:bg-slate-700 border-slate-600 text-slate-100",
-        nav: "bg-slate-900 border-t border-slate-700",
+        tableBorder: "border-[#1E2A3F]",
+        rowBorder: "border-slate-800/80",
+        btn: "bg-slate-800/70 hover:bg-slate-700/90 text-slate-100 border border-slate-700/60",
+        seeMore:
+          "bg-slate-800/60 hover:bg-slate-700/80 border-[#1E2A3F] text-slate-100 rounded-xl",
+        nav: "bg-[#0D1320]/95 backdrop-blur-xl border-t border-[#1E2A3F]/90 shadow-[0_-8px_32px_-12px_rgba(0,0,0,0.5)]",
         navActive: "text-cyan-400",
-        navIdle: "text-slate-400",
-        summary: "bg-slate-900/90 border-b border-slate-800 text-slate-300",
-        error: "bg-red-950/80 border-red-700 text-red-200",
-        popup: "bg-slate-800 border-cyan-600 text-slate-100",
+        navIdle: "text-slate-500",
+        summary: "bg-[#0D1320]/90 border-b border-[#1E2A3F] text-slate-300",
+        error: "bg-rose-950/70 border-rose-700/60 text-rose-100",
+        popup: "bg-[#121A2B] border-cyan-500/40 text-slate-100 shadow-ops-lg",
       };
 
   return (
     <div className={theme.page}>
-      {/* Header */}
+      {/* Header — Command bar */}
       <header className={theme.header}>
         <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <LayoutDashboard className="w-7 h-7 text-cyan-500" />
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">Fleet Manager</h1>
-              <p className={`text-xs ${theme.muted}`}>Downtime · Compliance · Fuel · Risk</p>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-500/15 border border-cyan-500/25 text-cyan-400 shadow-glow-cyan">
+              <LayoutDashboard className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-50 truncate">
+                Fleet Manager
+              </h1>
+              <p className={`text-[11px] sm:text-xs tracking-wide ${theme.muted}`}>
+                Operate · Downtime · Compliance · Fuel
+              </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {usingDemo && (
-              <span className="text-xs bg-amber-500/20 text-amber-600 px-2 py-1 rounded">
-                Demo data
+              <span className="hidden sm:inline-flex text-[10px] font-semibold uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-full">
+                Demo
               </span>
             )}
             <button
               onClick={openSearchPopup}
-              className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg ${theme.btn} transition ${
-                showSearchPopup ? "ring-2 ring-cyan-500" : ""
-              }`}
+              className={`ops-btn ${showSearchPopup ? "ring-2 ring-cyan-500/70 border-cyan-500/50" : ""}`}
               title="Search vehicles, plates, makes & drivers"
+              aria-label="Search"
             >
-              <Search className="w-5 h-5 text-cyan-500" />
+              <Search className="w-5 h-5 text-cyan-400" />
             </button>
             <button
               onClick={openSchedulesView}
-              className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg ${theme.btn} transition ${
-                showSchedulesView ? "ring-2 ring-violet-500" : ""
-              }`}
+              className={`ops-btn ${showSchedulesView ? "ring-2 ring-violet-500/70 border-violet-500/50" : ""}`}
               title="Schedules — vehicles, drivers & AI clash analysis"
+              aria-label="Schedules"
             >
-              <CalendarClock className="w-5 h-5 text-violet-500" />
+              <CalendarClock className="w-5 h-5 text-violet-400" />
             </button>
             <button
               onClick={() => setLightMode(!lightMode)}
-              className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg ${theme.btn} transition`}
+              className="ops-btn"
               title={lightMode ? "Dark mode" : "Light mode (outdoor)"}
+              aria-label="Toggle theme"
             >
               {lightMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
             </button>
             <button
               onClick={loadData}
               disabled={loading}
-              className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg ${theme.btn} transition disabled:opacity-50`}
+              className="ops-btn disabled:opacity-50"
               title="Refresh"
+              aria-label="Refresh data"
             >
               <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
             </button>
           </div>
         </div>
-
       </header>
 
       {/* Full schedules board */}
@@ -1058,19 +1067,25 @@ export default function DashboardPage() {
       )}
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-8">
-        {/* KPI strip */}
-        <section id="overview" className="grid grid-cols-2 md:grid-cols-4 gap-4 scroll-mt-32">
+        {/* KPI strip — highest scan priority */}
+        <section
+          id="overview"
+          className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 scroll-mt-28"
+        >
           <button
             type="button"
             onClick={() => {
               setShowAllRisk(true);
               scrollToSection("risk");
             }}
-            className={`${theme.card} rounded-xl p-4 text-left hover:ring-2 hover:ring-cyan-500/50 transition`}
+            className={`ops-kpi ${theme.card} group`}
             title="Show all vehicles in risk ranking"
           >
-            <p className={`text-xs ${theme.cardMuted} uppercase`}>Total Vehicles</p>
-            <p className="text-2xl font-bold">{vehicles.length}</p>
+            <p className="ops-label">Fleet size</p>
+            <p className="ops-value mt-1 group-hover:text-cyan-300 transition-colors">
+              {vehicles.length}
+            </p>
+            <p className={`text-[11px] mt-1 ${theme.cardMuted}`}>Active units</p>
           </button>
           <button
             type="button"
@@ -1081,20 +1096,29 @@ export default function DashboardPage() {
                 scrollToSection("risk");
               }
             }}
-            className={`${theme.card} rounded-xl p-4 text-left hover:ring-2 hover:ring-red-500/50 transition`}
+            className={`ops-kpi ${theme.card} group relative overflow-hidden`}
             title="View offline / down vehicles"
           >
-            <p className={`text-xs ${theme.cardMuted} uppercase`}>Down / Offline</p>
-            <p className="text-2xl font-bold text-red-500">{downVehicles.length}</p>
+            {downVehicles.length > 0 && (
+              <span className="absolute top-3 right-3 h-2 w-2 rounded-full bg-rose-500 animate-pulse-soft shadow-glow-rose" />
+            )}
+            <p className="ops-label">Down / offline</p>
+            <p className="ops-value mt-1 text-rose-400 tabular-nums">
+              {downVehicles.length}
+            </p>
+            <p className={`text-[11px] mt-1 ${theme.cardMuted}`}>Needs shuffle</p>
           </button>
           <button
             type="button"
             onClick={() => setShowRoadworthyPopup(true)}
-            className={`${theme.card} rounded-xl p-4 text-left hover:ring-2 hover:ring-amber-500/50 transition`}
+            className={`ops-kpi ${theme.card} group`}
             title="Vehicles with roadworthy expiring within 20 days"
           >
-            <p className={`text-xs ${theme.cardMuted} uppercase`}>Roadworthy ≤20 days</p>
-            <p className="text-2xl font-bold text-amber-500">{certAlerts.length}</p>
+            <p className="ops-label">Roadworthy ≤20d</p>
+            <p className="ops-value mt-1 text-amber-400 tabular-nums">
+              {certAlerts.length}
+            </p>
+            <p className={`text-[11px] mt-1 ${theme.cardMuted}`}>Certificate alerts</p>
           </button>
           <button
             type="button"
@@ -1113,75 +1137,76 @@ export default function DashboardPage() {
               setFuelReserveMsg(null);
               setShowFuelReserveModal(true);
             }}
-            className={`${theme.card} rounded-xl p-4 text-left hover:ring-2 hover:ring-cyan-500/50 transition`}
+            className={`ops-kpi ${theme.card} group`}
             title="Update bulk fuel reserve or budget"
           >
-            <p className={`text-xs ${theme.cardMuted} uppercase`}>Fuel Reserve</p>
-            <p className="text-2xl font-bold text-cyan-600">
-              {Number(fuelReserve || 0).toLocaleString()} L
+            <p className="ops-label">Fuel reserve</p>
+            <p className="ops-value mt-1 text-cyan-400 tabular-nums">
+              {Number(fuelReserve || 0).toLocaleString()}
+              <span className="text-base font-semibold text-cyan-500/80 ml-1">L</span>
             </p>
             {fuelReserveMeta.mode === "budget" &&
               (fuelReserveMeta.remaining_budget_zar != null ||
                 fuelReserveMeta.budget_zar != null) && (
-              <p className={`text-[10px] ${theme.cardMuted}`}>
-                Budget R
-                {Number(
-                  fuelReserveMeta.remaining_budget_zar ??
-                    fuelReserveMeta.budget_zar ??
-                    0
-                ).toLocaleString()}{" "}
-                remaining
-              </p>
-            )}
+                <p className={`text-[11px] mt-1 ${theme.cardMuted}`}>
+                  R
+                  {Number(
+                    fuelReserveMeta.remaining_budget_zar ??
+                      fuelReserveMeta.budget_zar ??
+                      0
+                  ).toLocaleString()}{" "}
+                  remaining
+                </p>
+              )}
           </button>
         </section>
 
         {/* Company COIDA (business-level, not per vehicle) */}
-        <section id="coida" className="scroll-mt-32">
+        <section id="coida" className="scroll-mt-28">
           <div
-            className={`rounded-xl border p-4 sm:p-5 ${
+            className={`rounded-2xl border p-4 sm:p-5 ${
               coidaStatus.color === "red"
                 ? lightMode
-                  ? "bg-red-50 border-red-300 text-slate-900"
-                  : "bg-red-950/40 border-red-700 text-slate-100"
+                  ? "bg-rose-50 border-rose-200 text-slate-900"
+                  : "bg-rose-950/35 border-rose-500/40 text-slate-100 shadow-glow-rose"
                 : coidaStatus.color === "yellow"
                 ? lightMode
-                  ? "bg-amber-50 border-amber-300 text-slate-900"
-                  : "bg-amber-950/30 border-amber-600 text-slate-100"
+                  ? "bg-amber-50 border-amber-200 text-slate-900"
+                  : "bg-amber-950/25 border-amber-500/35 text-slate-100 shadow-glow-amber"
                 : lightMode
-                ? "bg-emerald-50 border-emerald-300 text-slate-900"
-                : "bg-emerald-950/30 border-emerald-700 text-slate-100"
+                ? "bg-emerald-50 border-emerald-200 text-slate-900"
+                : "bg-emerald-950/25 border-emerald-500/30 text-slate-100"
             }`}
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold flex items-center gap-2">
+                <h2 className="ops-section-title">
                   Company COIDA certificate
                 </h2>
-                <p className={`text-sm mt-1 ${lightMode ? "text-slate-600" : "text-slate-300"}`}>
-                  Applies to the whole business (all drivers & vehicles) — not issued per vehicle.
+                <p className={`text-sm mt-1.5 ${lightMode ? "text-slate-600" : "text-slate-400"}`}>
+                  Business-level cover for all drivers & vehicles — not issued per unit.
                 </p>
               </div>
               <span
-                className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide ${
+                className={`px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider ${
                   coidaStatus.color === "red"
-                    ? "bg-red-600 text-white"
+                    ? "bg-rose-600 text-white"
                     : coidaStatus.color === "yellow"
                     ? "bg-amber-500 text-white"
                     : "bg-emerald-600 text-white"
                 }`}
               >
                 {coidaStatus.color === "red"
-                  ? "Red"
+                  ? "Critical"
                   : coidaStatus.color === "yellow"
-                  ? "Yellow"
-                  : "Green"}
+                  ? "Attention"
+                  : "Healthy"}
               </span>
             </div>
-            <div className="mt-4 grid sm:grid-cols-2 gap-3 text-sm">
+            <div className="mt-5 grid sm:grid-cols-2 gap-4 text-sm">
               <div>
-                <p className={lightMode ? "text-slate-500" : "text-slate-400"}>Expiry date</p>
-                <p className="text-xl font-semibold mt-0.5">
+                <p className={`ops-label ${lightMode ? "text-slate-500" : ""}`}>Expiry date</p>
+                <p className="text-xl font-semibold mt-1 tabular-nums tracking-tight">
                   {companyCoidaExpiry
                     ? new Date(companyCoidaExpiry).toLocaleDateString("en-ZA", {
                         day: "numeric",
@@ -1192,41 +1217,61 @@ export default function DashboardPage() {
                 </p>
               </div>
               <div>
-                <p className={lightMode ? "text-slate-500" : "text-slate-400"}>Status</p>
-                <p className="text-lg font-medium mt-0.5">
+                <p className={`ops-label ${lightMode ? "text-slate-500" : ""}`}>Status</p>
+                <p className="text-lg font-medium mt-1">
                   {coidaStatus.label}
                   {coidaStatus.days !== null && coidaStatus.days >= 0 && (
-                    <span className={`block text-sm font-normal ${lightMode ? "text-slate-600" : "text-slate-300"}`}>
+                    <span
+                      className={`block text-sm font-normal mt-0.5 ${
+                        lightMode ? "text-slate-600" : "text-slate-400"
+                      }`}
+                    >
                       {coidaStatus.days} day{coidaStatus.days === 1 ? "" : "s"} remaining
                     </span>
                   )}
                 </p>
               </div>
             </div>
-            <p className={`mt-4 text-xs leading-relaxed ${lightMode ? "text-slate-600" : "text-slate-400"}`}>
-              Note: Renewing a COIDA certificate can take <strong>5–15 working days</strong> depending on
-              application accuracy and departmental workload. Start the process early when status turns yellow
-              (50 days or less) so cover does not lapse.
+            <p
+              className={`mt-5 text-xs leading-relaxed ${
+                lightMode ? "text-slate-600" : "text-slate-500"
+              }`}
+            >
+              Renewal typically takes{" "}
+              <strong className={lightMode ? "text-slate-800" : "text-slate-200"}>
+                5–15 working days
+              </strong>
+              . Start when status turns yellow (≤50 days) so cover never lapses.
             </p>
           </div>
         </section>
 
         {/* Risk Ranking */}
-        <section id="risk" className="scroll-mt-32">
-          <h2 className={`text-lg font-semibold mb-3 flex items-center gap-2 ${lightMode ? "text-slate-900" : "text-slate-100"}`}>
-            <AlertTriangle className="w-5 h-5 text-amber-400" />
-            Risk Ranking (Service + Roadworthy + Income Exposure)
-          </h2>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <section id="risk" className="scroll-mt-28">
+          <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
+            <h2 className="ops-section-title">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400">
+                <AlertTriangle className="w-4 h-4" />
+              </span>
+              Risk ranking
+            </h2>
+            <p className={`text-xs ${theme.cardMuted}`}>
+              Service · Roadworthy · Income exposure
+            </p>
+          </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {(showAllRisk ? risks : risks.slice(0, 6)).map((r) => {
               const v = vehicles.find((x) => x.id === r.vehicle_id);
               if (!v) return null;
               return (
-                <div key={v.id} id={`risk-card-${v.id}`}>
+                <div key={v.id} id={`risk-card-${v.id}`} className="animate-fade-in">
                   <VehicleCard
                     vehicle={v}
                     riskScore={r.total_risk}
-                    onSelect={(v) => { setSelectedContext("risk"); setSelected(v); }}
+                    onSelect={(v) => {
+                      setSelectedContext("risk");
+                      setSelected(v);
+                    }}
                     highlighted={selected?.id === v.id}
                     lightMode={lightMode}
                   />
@@ -1238,7 +1283,7 @@ export default function DashboardPage() {
             <div className="mt-4 text-center">
               <button
                 onClick={() => setShowAllRisk(!showAllRisk)}
-                className={`inline-flex items-center justify-center gap-2 w-full sm:w-auto min-h-[44px] px-4 py-3 text-sm border rounded-lg transition ${theme.seeMore}`}
+                className={`inline-flex items-center justify-center gap-2 w-full sm:w-auto min-h-[44px] px-5 py-3 text-sm border transition ${theme.seeMore}`}
               >
                 {showAllRisk ? (
                   <>
@@ -1254,41 +1299,86 @@ export default function DashboardPage() {
           )}
         </section>
 
-        {/* Downtime & Reschedule helper */}
+        {/* Downtime & Reschedule helper — highest operational priority */}
         {downVehicles.length > 0 && (
-          <section id="downtime" className={`${lightMode ? "bg-red-50 border-red-200 text-slate-900" : "bg-slate-900 border-red-900/50 text-slate-100"} border rounded-xl p-5`}>
-            <h2 className={`text-lg font-semibold mb-3 flex items-center gap-2 ${lightMode ? "text-red-700" : "text-red-300"}`}>
-              <CalendarClock className="w-5 h-5" />
-              Vehicles Offline – Schedule Shuffle Needed
+          <section
+            id="downtime"
+            className={`relative overflow-hidden border rounded-2xl p-5 sm:p-6 ${
+              lightMode
+                ? "bg-rose-50 border-rose-200 text-slate-900"
+                : "bg-gradient-to-br from-rose-950/40 via-[#0D1320] to-[#0D1320] border-rose-500/30 text-slate-100 shadow-glow-rose"
+            }`}
+          >
+            <div className="absolute top-0 right-0 w-40 h-40 bg-rose-500/10 blur-3xl rounded-full pointer-events-none" />
+            <h2
+              className={`ops-section-title mb-4 relative ${
+                lightMode ? "text-rose-800" : "text-rose-200"
+              }`}
+            >
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-500/20 text-rose-400">
+                <CalendarClock className="w-4 h-4" />
+              </span>
+              Vehicles offline — schedule shuffle
             </h2>
-            <div className="space-y-3">
+            <div className="space-y-3 relative">
               {downVehicles.map((v) => (
                 <div
                   key={v.id}
-                  className={`flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg ${
-                    lightMode ? "bg-white border border-red-100" : "bg-slate-800/60"
+                  className={`flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl border ${
+                    lightMode
+                      ? "bg-white border-rose-100 shadow-sm"
+                      : "bg-[#121A2B]/80 border-rose-500/20"
                   }`}
                 >
-                  <div>
-                    <p className="font-medium">
-                      {v.plate} ({v.vehicle_id}) – {v.status}
+                  <div className="min-w-0">
+                    <p className="font-semibold flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-cyan-400 tracking-wide">{v.plate}</span>
+                      <span className={`text-xs font-normal ${theme.cardMuted}`}>
+                        {v.vehicle_id}
+                      </span>
+                      <span
+                        className={`ops-status ${
+                          v.status === "accident"
+                            ? lightMode
+                              ? "bg-rose-100 text-rose-700 border-rose-200"
+                              : "bg-rose-500/15 text-rose-300 border-rose-500/40"
+                            : lightMode
+                            ? "bg-amber-100 text-amber-800 border-amber-200"
+                            : "bg-amber-500/15 text-amber-300 border-amber-500/40"
+                        }`}
+                      >
+                        {v.status}
+                      </span>
                     </p>
-                    <p className={`text-sm ${lightMode ? "text-slate-600" : "text-slate-400"}`}>
+                    <p className={`text-sm mt-1 ${lightMode ? "text-slate-600" : "text-slate-400"}`}>
                       {v.notes || "No notes"}
                     </p>
-                    <p className={`text-xs ${lightMode ? "text-red-600" : "text-red-300"}`}>
-                      Income exposure: ~R{Number(v.estimated_daily_income).toLocaleString()}/day
+                    <p
+                      className={`text-xs mt-1.5 font-medium tabular-nums ${
+                        lightMode ? "text-rose-600" : "text-rose-300"
+                      }`}
+                    >
+                      Income at risk · R{Number(v.estimated_daily_income).toLocaleString()}/day
                     </p>
                   </div>
-                  <div className={`text-sm ${lightMode ? "text-slate-700" : "text-slate-300"}`}>
-                    <p>Suggested: Reassign jobs to highest-availability active vehicles with similar capacity.</p>
-                    <p className={`text-xs mt-1 ${lightMode ? "text-slate-500" : "text-slate-500"}`}>
-                      Active candidates:{" "}
-                      {vehicles
-                        .filter((x) => x.status === "active" && x.id !== v.id)
-                        .slice(0, 3)
-                        .map((x) => x.plate)
-                        .join(", ") || "None"}
+                  <div
+                    className={`text-sm max-w-md ${
+                      lightMode ? "text-slate-700" : "text-slate-300"
+                    }`}
+                  >
+                    <p className="font-medium text-cyan-500/90">Suggested reassignment</p>
+                    <p className={`text-xs mt-1 leading-relaxed ${theme.cardMuted}`}>
+                      Move jobs to highest-availability active units with similar capacity.
+                    </p>
+                    <p className={`text-xs mt-2 ${theme.cardMuted}`}>
+                      Candidates:{" "}
+                      <span className="font-mono text-cyan-400/90">
+                        {vehicles
+                          .filter((x) => x.status === "active" && x.id !== v.id)
+                          .slice(0, 3)
+                          .map((x) => x.plate)
+                          .join(" · ") || "None available"}
+                      </span>
                     </p>
                   </div>
                 </div>
@@ -2727,9 +2817,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Bottom navigation – mobile first */}
+      {/* Bottom navigation – mobile-first command dock */}
       <nav className={`fixed bottom-0 left-0 right-0 z-30 ${theme.nav} safe-area-pb`}>
-        <div className="max-w-7xl mx-auto grid grid-cols-5 gap-1 px-1 py-1">
+        <div className="max-w-7xl mx-auto grid grid-cols-5 gap-0.5 px-1.5 py-1.5">
           {[
             { id: "overview", label: "Home", icon: LayoutDashboard },
             { id: "risk", label: "Risk", icon: AlertTriangle },
@@ -2744,11 +2834,14 @@ export default function DashboardPage() {
                 key={item.id}
                 type="button"
                 onClick={() => scrollToSection(item.id)}
-                className={`flex flex-col items-center justify-center gap-0.5 min-h-[56px] rounded-lg text-[10px] sm:text-xs font-medium transition ${
+                className={`relative flex flex-col items-center justify-center gap-0.5 min-h-[56px] rounded-xl text-[10px] sm:text-[11px] font-semibold tracking-wide transition-all duration-150 ${
                   active ? theme.navActive : theme.navIdle
-                }`}
+                } ${active ? "bg-cyan-500/10" : "hover:bg-slate-800/40"}`}
               >
-                <Icon className="w-5 h-5" />
+                {active && (
+                  <span className="absolute top-1.5 h-0.5 w-6 rounded-full bg-cyan-400 shadow-glow-cyan" />
+                )}
+                <Icon className={`w-5 h-5 ${active ? "scale-105" : ""} transition-transform`} />
                 {item.label}
               </button>
             );
