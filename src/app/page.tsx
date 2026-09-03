@@ -23,6 +23,7 @@ import {
   Moon,
   X,
   Wrench,
+  Search,
 } from "lucide-react";
 
 // Demo seed data when Supabase is not configured
@@ -191,6 +192,16 @@ export default function DashboardPage() {
   const [lightMode, setLightMode] = useState(false);
   const [activeSection, setActiveSection] = useState("overview");
   const [sheetClosing, setSheetClosing] = useState(false);
+  const [showSearchPopup, setShowSearchPopup] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResult, setSearchResult] = useState<
+    | { type: "vehicle"; vehicle: Vehicle }
+    | { type: "driver"; driver: Driver }
+    | null
+  >(null);
+  const [searchFuelAnalytics, setSearchFuelAnalytics] = useState<any>(null);
+  const [searchServiceAnalytics, setSearchServiceAnalytics] = useState<any>(null);
+  const [loadingSearchAnalytics, setLoadingSearchAnalytics] = useState(false);
 
   const closeSheet = () => {
     if (sheetClosing) return;
@@ -278,6 +289,91 @@ export default function DashboardPage() {
     setApplyRecMsg(null);
     loadScheduleAnalytics();
     loadData();
+  };
+
+  const openSearchPopup = () => {
+    setShowSearchPopup(true);
+    setSearchQuery("");
+    setSearchResult(null);
+    setSearchFuelAnalytics(null);
+    setSearchServiceAnalytics(null);
+  };
+
+  /** Province-agnostic plate compare for local search (mirrors scan matching) */
+  const plateSearchKey = (plate: string | null | undefined) => {
+    const raw = (plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const regions = ["KZN", "CA", "GP", "WC", "EC", "FS", "MP", "NW", "LP", "NC"];
+    for (const code of regions) {
+      if (raw.startsWith(code) && raw.length > code.length + 2) return raw.slice(code.length);
+      if (raw.endsWith(code) && raw.length > code.length + 2) return raw.slice(0, -code.length);
+    }
+    return raw;
+  };
+
+  const searchHits = (() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q || q.length < 1) return { vehicles: [] as Vehicle[], drivers: [] as Driver[] };
+    const qPlate = plateSearchKey(searchQuery);
+    const vehicleHits = vehicles
+      .filter((v) => {
+        const plate = (v.plate || "").toLowerCase();
+        const plateKey = plateSearchKey(v.plate);
+        const make = (v.make || "").toLowerCase();
+        const model = (v.model || "").toLowerCase();
+        const vid = (v.vehicle_id || "").toLowerCase();
+        const makeModel = `${make} ${model}`;
+        return (
+          plate.includes(q) ||
+          (qPlate.length >= 3 && (plateKey.includes(qPlate) || qPlate.includes(plateKey))) ||
+          make.includes(q) ||
+          model.includes(q) ||
+          makeModel.includes(q) ||
+          vid.includes(q)
+        );
+      })
+      .slice(0, 12);
+    const driverHits = drivers
+      .filter((d) => {
+        const name = (d.name || "").toLowerCase();
+        const lic = (d.license_number || "").toLowerCase();
+        const phone = (d.phone || "").toLowerCase();
+        return name.includes(q) || lic.includes(q) || phone.includes(q);
+      })
+      .slice(0, 12);
+    return { vehicles: vehicleHits, drivers: driverHits };
+  })();
+
+  const selectSearchVehicle = async (v: Vehicle) => {
+    setSearchResult({ type: "vehicle", vehicle: v });
+    setSearchFuelAnalytics(null);
+    setSearchServiceAnalytics(null);
+    setLoadingSearchAnalytics(true);
+    try {
+      const [fuelRes, svcRes] = await Promise.all([
+        fetch("/api/fuel-analytics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vehicleId: v.id }),
+        }).then((r) => r.json().catch(() => ({}))),
+        fetch("/api/service-analytics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vehicleId: v.id }),
+        }).then((r) => r.json().catch(() => ({}))),
+      ]);
+      setSearchFuelAnalytics(fuelRes?.analytics || null);
+      setSearchServiceAnalytics(svcRes?.analytics || null);
+    } catch {
+      /* offline / demo — panels stay empty */
+    } finally {
+      setLoadingSearchAnalytics(false);
+    }
+  };
+
+  const selectSearchDriver = (d: Driver) => {
+    setSearchResult({ type: "driver", driver: d });
+    setSearchFuelAnalytics(null);
+    setSearchServiceAnalytics(null);
   };
 
   const applyScheduleRecommendations = async (kind: "clash" | "heavy_day") => {
@@ -612,6 +708,15 @@ export default function DashboardPage() {
                 Demo data
               </span>
             )}
+            <button
+              onClick={openSearchPopup}
+              className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg ${theme.btn} transition ${
+                showSearchPopup ? "ring-2 ring-cyan-500" : ""
+              }`}
+              title="Search vehicles, plates, makes & drivers"
+            >
+              <Search className="w-5 h-5 text-cyan-500" />
+            </button>
             <button
               onClick={openSchedulesView}
               className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg ${theme.btn} transition ${
@@ -2053,6 +2158,417 @@ export default function DashboardPage() {
           );
         })()}
 
+
+      {/* Fleet search popup — plates, makes/models, drivers */}
+      {showSearchPopup && (
+        <div className="fixed inset-0 z-[60] flex flex-col bg-black/50">
+          <div
+            className={`flex-1 m-0 sm:m-4 sm:rounded-2xl overflow-hidden flex flex-col ${theme.popup} border ${theme.tableBorder} shadow-2xl`}
+          >
+            <div className={`flex items-center justify-between gap-3 px-4 py-3 border-b ${theme.tableBorder}`}>
+              <div className="flex items-center gap-2">
+                <Search className="w-5 h-5 text-cyan-500" />
+                <div>
+                  <p className="font-semibold">Search fleet</p>
+                  <p className={`text-xs ${theme.cardMuted}`}>
+                    Plates · make/model · drivers
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSearchPopup(false);
+                  setSearchResult(null);
+                  setSearchQuery("");
+                }}
+                className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg ${theme.btn}`}
+                aria-label="Close search"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-4 pt-3 pb-2">
+              <input
+                type="search"
+                autoFocus
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setSearchResult(null);
+                }}
+                placeholder="e.g. CA 123, Hilux, Thabo, FLT-001…"
+                className={`w-full min-h-[48px] rounded-xl border px-4 text-sm ${theme.tableBorder} bg-transparent`}
+              />
+              <p className={`text-[10px] mt-1.5 ${theme.cardMuted}`}>
+                Province codes (CA, GP, WC…) match whether they are at the front or back of the plate.
+              </p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto hide-scrollbar px-4 pb-24 space-y-4">
+              {!searchResult && searchQuery.trim() && (
+                <>
+                  {searchHits.vehicles.length > 0 && (
+                    <div>
+                      <p className={`text-xs font-semibold uppercase mb-2 ${theme.cardMuted}`}>
+                        Vehicles ({searchHits.vehicles.length})
+                      </p>
+                      <ul className="space-y-1.5">
+                        {searchHits.vehicles.map((v) => (
+                          <li key={v.id}>
+                            <button
+                              type="button"
+                              onClick={() => selectSearchVehicle(v)}
+                              className={`w-full text-left rounded-xl border px-3 py-2.5 min-h-[48px] transition hover:ring-2 hover:ring-cyan-500/40 ${theme.tableBorder}`}
+                            >
+                              <span className="font-semibold text-cyan-500">{v.plate}</span>
+                              <span className={`text-xs ml-2 ${theme.cardMuted}`}>
+                                {v.vehicle_id} · {v.make} {v.model}
+                              </span>
+                              <span
+                                className={`block text-[11px] mt-0.5 capitalize ${
+                                  v.status === "active"
+                                    ? "text-emerald-500"
+                                    : v.status === "maintenance"
+                                    ? "text-amber-500"
+                                    : v.status === "accident"
+                                    ? "text-red-500"
+                                    : theme.cardMuted
+                                }`}
+                              >
+                                {v.status}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {searchHits.drivers.length > 0 && (
+                    <div>
+                      <p className={`text-xs font-semibold uppercase mb-2 ${theme.cardMuted}`}>
+                        Drivers ({searchHits.drivers.length})
+                      </p>
+                      <ul className="space-y-1.5">
+                        {searchHits.drivers.map((d) => (
+                          <li key={d.id}>
+                            <button
+                              type="button"
+                              onClick={() => selectSearchDriver(d)}
+                              className={`w-full text-left rounded-xl border px-3 py-2.5 min-h-[48px] transition hover:ring-2 hover:ring-cyan-500/40 ${theme.tableBorder}`}
+                            >
+                              <span className="font-semibold">{d.name}</span>
+                              <span className={`text-xs ml-2 ${theme.cardMuted}`}>
+                                {d.license_number || "—"} · {d.status}
+                              </span>
+                              {d.phone && (
+                                <span className={`block text-[11px] mt-0.5 ${theme.cardMuted}`}>
+                                  {d.phone}
+                                </span>
+                              )}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {searchHits.vehicles.length === 0 && searchHits.drivers.length === 0 && (
+                    <p className={`text-sm ${theme.cardMuted}`}>No matches for “{searchQuery.trim()}”.</p>
+                  )}
+                </>
+              )}
+
+              {!searchResult && !searchQuery.trim() && (
+                <p className={`text-sm ${theme.cardMuted}`}>
+                  Type a number plate, make, model, fleet ID, or driver name to search.
+                </p>
+              )}
+
+              {/* Vehicle detail */}
+              {searchResult?.type === "vehicle" && (() => {
+                const v = searchResult.vehicle;
+                const kmLeft = kmToNextService(v);
+                const rwDays = daysUntil(v.roadworthy_expiry);
+                const assigned = drivers.find((d) => d.id === v.assigned_driver_id) || null;
+                const vSchedules = schedules
+                  .filter((s) => s.vehicle_id === v.id)
+                  .sort(
+                    (a, b) =>
+                      new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+                  )
+                  .slice(0, 8);
+                return (
+                  <div className="space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => setSearchResult(null)}
+                      className={`text-xs ${theme.cardMuted} underline`}
+                    >
+                      ← Back to results
+                    </button>
+                    <div className={`rounded-xl border p-4 space-y-1 ${theme.tableBorder}`}>
+                      <p className="text-lg font-bold text-cyan-500">{v.plate}</p>
+                      <p className="text-sm">
+                        {v.make} {v.model} {v.year ? `(${v.year})` : ""} · {v.vehicle_id}
+                      </p>
+                      <p className={`text-xs capitalize ${theme.cardMuted}`}>Status: {v.status}</p>
+                    </div>
+
+                    {/* Service */}
+                    <div className={`rounded-xl border p-3 space-y-1 text-sm ${theme.tableBorder}`}>
+                      <p className="font-semibold flex items-center gap-2">
+                        <Wrench className="w-4 h-4 text-amber-500" /> Service
+                      </p>
+                      <p>
+                        <span className={theme.cardMuted}>Last service: </span>
+                        {formatDate(v.last_service_date)}
+                        {v.last_service_odometer != null &&
+                          ` @ ${Number(v.last_service_odometer).toLocaleString()} km`}
+                      </p>
+                      <p>
+                        <span className={theme.cardMuted}>Odometer: </span>
+                        {Number(v.current_odometer || 0).toLocaleString()} km
+                      </p>
+                      <p>
+                        <span className={theme.cardMuted}>Km to next ({v.service_interval_km || 5000} km interval): </span>
+                        <span
+                          className={
+                            kmLeft < 500
+                              ? "text-red-500 font-medium"
+                              : kmLeft < 1000
+                              ? "text-amber-500"
+                              : ""
+                          }
+                        >
+                          {Math.round(kmLeft).toLocaleString()} km
+                        </span>
+                      </p>
+                    </div>
+
+                    {/* Certificates */}
+                    <div className={`rounded-xl border p-3 space-y-1 text-sm ${theme.tableBorder}`}>
+                      <p className="font-semibold flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-500" /> Certificates
+                      </p>
+                      <p>
+                        <span className={theme.cardMuted}>Roadworthy: </span>
+                        {formatDate(v.roadworthy_expiry)}
+                        {rwDays != null && (
+                          <span
+                            className={
+                              rwDays < 0
+                                ? " text-red-500"
+                                : rwDays <= 20
+                                ? " text-amber-500"
+                                : " text-emerald-500"
+                            }
+                          >
+                            {" "}
+                            ({rwDays < 0 ? `expired ${Math.abs(rwDays)}d ago` : `${rwDays}d left`})
+                          </span>
+                        )}
+                      </p>
+                      <p className={`text-xs ${theme.cardMuted}`}>
+                        COIDA is company-level (see Home) — not issued per vehicle.
+                      </p>
+                    </div>
+
+                    {/* Driver */}
+                    <div className={`rounded-xl border p-3 space-y-1 text-sm ${theme.tableBorder}`}>
+                      <p className="font-semibold flex items-center gap-2">
+                        <Users className="w-4 h-4 text-cyan-500" /> Assigned driver
+                      </p>
+                      {assigned ? (
+                        <>
+                          <p className="font-medium">{assigned.name}</p>
+                          <p className={`text-xs ${theme.cardMuted}`}>
+                            {assigned.license_number || "—"} · {assigned.status}
+                          </p>
+                          {assigned.phone && (
+                            <a href={`tel:${assigned.phone}`} className="text-cyan-500 text-sm flex items-center gap-1">
+                              <Phone className="w-3.5 h-3.5" /> {assigned.phone}
+                            </a>
+                          )}
+                        </>
+                      ) : (
+                        <p className={theme.cardMuted}>No driver assigned</p>
+                      )}
+                    </div>
+
+                    {/* Schedules */}
+                    <div className={`rounded-xl border p-3 space-y-2 text-sm ${theme.tableBorder}`}>
+                      <p className="font-semibold flex items-center gap-2">
+                        <CalendarClock className="w-4 h-4 text-violet-500" /> Upcoming schedules
+                      </p>
+                      {vSchedules.length === 0 ? (
+                        <p className={theme.cardMuted}>No schedules on file</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {vSchedules.map((s) => (
+                            <li key={s.id} className={`rounded-lg border px-2 py-1.5 text-xs ${theme.tableBorder}`}>
+                              <span className="font-medium capitalize">{s.status}</span>
+                              {" · "}
+                              {s.job_type || "job"}
+                              {s.location ? ` · ${s.location}` : ""}
+                              <span className={`block ${theme.cardMuted}`}>
+                                {new Date(s.start_time).toLocaleString()}
+                                {s.end_time
+                                  ? ` → ${new Date(s.end_time).toLocaleString()}`
+                                  : ""}
+                              </span>
+                              {s.job_description && (
+                                <span className="block mt-0.5">{s.job_description}</span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    {/* AI analytics */}
+                    <div className={`rounded-xl border p-3 space-y-2 text-sm ${theme.tableBorder}`}>
+                      <p className="font-semibold flex items-center gap-2">
+                        <Brain className="w-4 h-4 text-cyan-500" /> Vehicle AI analytics
+                      </p>
+                      {loadingSearchAnalytics && (
+                        <div className="flex items-center gap-2 text-xs text-cyan-500">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Loading fuel &amp; service insights…
+                        </div>
+                      )}
+                      {!loadingSearchAnalytics && searchServiceAnalytics && (
+                        <div className="space-y-1 text-xs">
+                          <p className="font-medium text-amber-500">Service</p>
+                          <p className={theme.cardMuted}>{searchServiceAnalytics.summary}</p>
+                          {Array.isArray(searchServiceAnalytics.recommendations) &&
+                            searchServiceAnalytics.recommendations.slice(0, 3).map((r: string, i: number) => (
+                              <p key={i}>• {r}</p>
+                            ))}
+                        </div>
+                      )}
+                      {!loadingSearchAnalytics && searchFuelAnalytics && (
+                        <div className="space-y-1 text-xs mt-2">
+                          <p className="font-medium text-cyan-500">Fuel</p>
+                          <p className={theme.cardMuted}>{searchFuelAnalytics.summary}</p>
+                          <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+                            <span className={theme.cardMuted}>Refuels</span>
+                            <span>{searchFuelAnalytics.refuel_count}</span>
+                            <span className={theme.cardMuted}>Total litres</span>
+                            <span>{searchFuelAnalytics.total_liters_refueled} L</span>
+                            <span className={theme.cardMuted}>vs expected</span>
+                            <span className="capitalize">{searchFuelAnalytics.consumption_vs_expected}</span>
+                            <span className={theme.cardMuted}>Reserve impact</span>
+                            <span className="capitalize">{searchFuelAnalytics.impact_on_reserve}</span>
+                          </div>
+                          {Array.isArray(searchFuelAnalytics.recommendations) &&
+                            searchFuelAnalytics.recommendations.slice(0, 3).map((r: string, i: number) => (
+                              <p key={i}>• {r}</p>
+                            ))}
+                        </div>
+                      )}
+                      {!loadingSearchAnalytics && !searchFuelAnalytics && !searchServiceAnalytics && (
+                        <p className={`text-xs ${theme.cardMuted}`}>
+                          No AI analytics available (demo mode or API offline).
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Driver detail */}
+              {searchResult?.type === "driver" && (() => {
+                const d = searchResult.driver;
+                const assignedVehicles = vehicles.filter((v) => v.assigned_driver_id === d.id);
+                const dSchedules = schedules
+                  .filter((s) => s.driver_id === d.id)
+                  .sort(
+                    (a, b) =>
+                      new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+                  )
+                  .slice(0, 8);
+                return (
+                  <div className="space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => setSearchResult(null)}
+                      className={`text-xs ${theme.cardMuted} underline`}
+                    >
+                      ← Back to results
+                    </button>
+                    <div className={`rounded-xl border p-4 space-y-1 ${theme.tableBorder}`}>
+                      <p className="text-lg font-bold">{d.name}</p>
+                      <p className={`text-sm ${theme.cardMuted}`}>
+                        License: {d.license_number || "—"} · Status: {d.status}
+                      </p>
+                      {d.phone && (
+                        <a href={`tel:${d.phone}`} className="text-cyan-500 text-sm flex items-center gap-1">
+                          <Phone className="w-3.5 h-3.5" /> {d.phone}
+                        </a>
+                      )}
+                    </div>
+
+                    <div className={`rounded-xl border p-3 space-y-2 text-sm ${theme.tableBorder}`}>
+                      <p className="font-semibold flex items-center gap-2">
+                        <Fuel className="w-4 h-4 text-cyan-500" /> Assigned vehicles
+                      </p>
+                      {assignedVehicles.length === 0 ? (
+                        <p className={theme.cardMuted}>No vehicles assigned</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {assignedVehicles.map((v) => (
+                            <li key={v.id}>
+                              <button
+                                type="button"
+                                onClick={() => selectSearchVehicle(v)}
+                                className={`w-full text-left rounded-lg border px-2 py-2 text-xs hover:ring-2 hover:ring-cyan-500/40 ${theme.tableBorder}`}
+                              >
+                                <span className="font-semibold text-cyan-500">{v.plate}</span>
+                                {" · "}
+                                {v.make} {v.model}
+                                <span className={`block capitalize ${theme.cardMuted}`}>{v.status}</span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    <div className={`rounded-xl border p-3 space-y-2 text-sm ${theme.tableBorder}`}>
+                      <p className="font-semibold flex items-center gap-2">
+                        <CalendarClock className="w-4 h-4 text-violet-500" /> Driver schedules
+                      </p>
+                      {dSchedules.length === 0 ? (
+                        <p className={theme.cardMuted}>No schedules on file</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {dSchedules.map((s) => {
+                            const veh = vehicles.find((x) => x.id === s.vehicle_id);
+                            return (
+                              <li key={s.id} className={`rounded-lg border px-2 py-1.5 text-xs ${theme.tableBorder}`}>
+                                <span className="font-medium capitalize">{s.status}</span>
+                                {veh ? ` · ${veh.plate}` : ""}
+                                {s.job_type ? ` · ${s.job_type}` : ""}
+                                <span className={`block ${theme.cardMuted}`}>
+                                  {new Date(s.start_time).toLocaleString()}
+                                </span>
+                                {s.job_description && (
+                                  <span className="block mt-0.5">{s.job_description}</span>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Roadworthy ≤20 days popup */}
       {showRoadworthyPopup && (

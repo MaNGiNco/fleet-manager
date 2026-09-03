@@ -17,9 +17,60 @@ const TEXT_MODEL = "openai/gpt-4o-mini";
 // Plate normalization & fuzzy matching helpers
 // ---------------------------------------------------------------------------
 
+/** SA province / region codes (longest first so KZN beats single letters) */
+const SA_REGION_CODES = ["KZN", "CA", "GP", "WC", "EC", "FS", "MP", "NW", "LP", "NC"] as const;
+
 /** Keep only A–Z / 0–9, uppercase */
 function alphanum(s: string): string {
   return (s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/**
+ * Split a plate into { region, core } whether the province code is at the
+ * front or the back, with or without spaces/hyphens.
+ * Examples:
+ *   "WC 333-222"  → { region: "WC", core: "333222" }
+ *   "333-222 WC"  → { region: "WC", core: "333222" }
+ *   "CA123456"    → { region: "CA", core: "123456" }
+ *   "123456GP"    → { region: "GP", core: "123456" }
+ *   "GP 12 AB GP" → { region: "GP", core: "12AB" }  (duplicate region ignored)
+ */
+function splitPlateRegion(plate: string | null | undefined): {
+  region: string | null;
+  core: string;
+  raw: string;
+} {
+  const raw = alphanum(plate || "");
+  if (!raw) return { region: null, core: "", raw: "" };
+
+  // Prefer explicit word-boundary region in original string
+  const upper = (plate || "").toUpperCase();
+  for (const code of SA_REGION_CODES) {
+    const re = new RegExp(`(?:^|[^A-Z0-9])${code}(?:[^A-Z0-9]|$)`);
+    if (re.test(upper) || upper.startsWith(code) || upper.endsWith(code)) {
+      // strip all occurrences of this region from alphanumeric form
+      let core = raw;
+      // remove leading region
+      if (core.startsWith(code)) core = core.slice(code.length);
+      // remove trailing region
+      if (core.endsWith(code)) core = core.slice(0, -code.length);
+      // remove mid (e.g. double GP)
+      core = core.split(code).join("");
+      if (core.length >= 3) return { region: code, core, raw };
+    }
+  }
+
+  // Fallback: leading / trailing region on alphanumeric only
+  for (const code of SA_REGION_CODES) {
+    if (raw.startsWith(code) && raw.length > code.length + 2) {
+      return { region: code, core: raw.slice(code.length), raw };
+    }
+    if (raw.endsWith(code) && raw.length > code.length + 2) {
+      return { region: code, core: raw.slice(0, -code.length), raw };
+    }
+  }
+
+  return { region: null, core: raw, raw };
 }
 
 /**
@@ -32,13 +83,30 @@ function normalizePlate(plate: string | null | undefined): string {
   return cleaned.split(/\s+/).filter(Boolean).sort().join(" ");
 }
 
-/** Core body without SA region codes */
+/** Core body without SA region codes (province front or back) */
 function plateCore(plate: string | null | undefined): string {
-  if (!plate) return "";
-  const withoutRegion = plate
-    .toUpperCase()
-    .replace(/\b(CA|GP|WC|KZN|EC|FS|MP|NW|LP|NC)\b/g, " ");
-  return withoutRegion.replace(/[^A-Z0-9]/g, "");
+  return splitPlateRegion(plate).core;
+}
+
+/** Canonical comparable key: core only (province position ignored) */
+function plateMatchKey(plate: string | null | undefined): string {
+  return splitPlateRegion(plate).core;
+}
+
+/**
+ * Generate alphanumeric variants with province moved front/back so
+ * "CA123456" and "123456CA" compare equal under fuzzy matching.
+ */
+function plateOrderVariants(plate: string | null | undefined): string[] {
+  const { region, core, raw } = splitPlateRegion(plate);
+  const variants = new Set<string>();
+  if (raw) variants.add(raw);
+  if (core) variants.add(core);
+  if (region && core) {
+    variants.add(region + core);
+    variants.add(core + region);
+  }
+  return Array.from(variants).filter(Boolean);
 }
 
 /** Levenshtein distance (edit distance) between two strings */
@@ -120,8 +188,10 @@ interface MatchResult {
 }
 
 /**
- * Find best matching vehicle using exact → core → fuzzy → OCR strategies.
- * Minimum fuzzy score threshold: 0.75 (allows ~1–2 character typos on typical plates).
+ * Find best matching vehicle using exact → core → province-reorder → fuzzy → OCR.
+ * Province codes (CA, GP, WC, …) may appear at the front OR back of the plate;
+ * matching is driven primarily by the plate body (core).
+ * Minimum score threshold: 0.72.
  */
 function findBestVehicleMatch(
   vehicles: any[],
@@ -131,10 +201,11 @@ function findBestVehicleMatch(
   if (!vehicles.length) return null;
 
   const normalizedExtracted = normalizePlate(extractedPlate);
-  const coreExtracted = plateCore(extractedPlate);
+  const splitExtracted = splitPlateRegion(extractedPlate);
+  const coreExtracted = splitExtracted.core;
   const alphanumExtracted = alphanum(extractedPlate || "");
+  const extractedVariants = plateOrderVariants(extractedPlate);
 
-  // Use explicit array to avoid TS narrowing issues with mutable null
   const candidates: MatchResult[] = [];
 
   const consider = (vehicle: any, score: number, method: string) => {
@@ -144,33 +215,66 @@ function findBestVehicleMatch(
   for (const v of vehicles) {
     const dbPlate = v.plate || "";
     const dbNorm = normalizePlate(dbPlate);
-    const dbCore = plateCore(dbPlate);
+    const splitDb = splitPlateRegion(dbPlate);
+    const dbCore = splitDb.core;
     const dbAlpha = alphanum(dbPlate);
+    const dbVariants = plateOrderVariants(dbPlate);
 
-    // 1. Exact normalized (order-independent)
+    // 1. Exact normalized (token-order independent: "WC 333" == "333 WC")
     if (normalizedExtracted && dbNorm === normalizedExtracted) {
       consider(v, 1.0, "exact_normalized");
       continue;
     }
 
-    // 2. Exact alphanumeric
+    // 2. Exact alphanumeric (identical string after stripping punctuation)
     if (alphanumExtracted && dbAlpha === alphanumExtracted) {
       consider(v, 0.99, "exact_alphanum");
       continue;
     }
 
-    // 3. Core body match (region code ignored / position-independent)
-    if (coreExtracted.length >= 4 && dbCore.length >= 4) {
+    // 3. Province-reordered alphanumeric equality
+    //    e.g. extracted "333222WC" vs DB "WC333222"
+    let orderHit = false;
+    for (const ev of extractedVariants) {
+      for (const dv of dbVariants) {
+        if (ev && dv && ev === dv) {
+          consider(v, 0.98, "province_reorder_exact");
+          orderHit = true;
+          break;
+        }
+      }
+      if (orderHit) break;
+    }
+    if (orderHit) continue;
+
+    // 4. Core body match (region code ignored — province front or back)
+    if (coreExtracted.length >= 3 && dbCore.length >= 3) {
       if (dbCore === coreExtracted) {
-        consider(v, 0.97, "core_exact");
+        // Same body; region may differ or be missing on one side
+        const regionBonus =
+          splitExtracted.region &&
+          splitDb.region &&
+          splitExtracted.region === splitDb.region
+            ? 0.99
+            : 0.96;
+        consider(v, regionBonus, "core_exact");
         continue;
       }
-      if (dbCore.includes(coreExtracted) || coreExtracted.includes(dbCore)) {
-        consider(v, 0.9, "core_contains");
+      // One core contains the other (partial OCR of body)
+      if (
+        (dbCore.length >= 4 && coreExtracted.length >= 4) &&
+        (dbCore.includes(coreExtracted) || coreExtracted.includes(dbCore))
+      ) {
+        consider(v, 0.88, "core_contains");
+      }
+      // Fuzzy on core only (ignores province position entirely)
+      const coreSim = similarity(coreExtracted, dbCore);
+      if (coreSim >= 0.8) {
+        consider(v, coreSim * 0.94, `core_fuzzy_${coreSim.toFixed(2)}`);
       }
     }
 
-    // 4. Vehicle ID match
+    // 5. Vehicle ID / fleet ID match
     if (extractedVehicleId && v.vehicle_id) {
       const idA = extractedVehicleId.toUpperCase().trim();
       const idB = String(v.vehicle_id).toUpperCase().trim();
@@ -183,21 +287,37 @@ function findBestVehicleMatch(
       }
     }
 
-    // 5. Fuzzy similarity on full alphanumeric plate
-    if (alphanumExtracted.length >= 4 && dbAlpha.length >= 4) {
-      const sim = similarity(alphanumExtracted, dbAlpha);
-      if (sim >= 0.75) {
-        consider(v, sim * 0.95, `fuzzy_${sim.toFixed(2)}`);
+    // 6. Fuzzy similarity across province-order variants
+    let bestFuzzy = 0;
+    for (const ev of extractedVariants) {
+      if (ev.length < 4) continue;
+      for (const dv of dbVariants) {
+        if (dv.length < 4) continue;
+        const sim = similarity(ev, dv);
+        if (sim > bestFuzzy) bestFuzzy = sim;
       }
     }
+    if (bestFuzzy >= 0.75) {
+      consider(v, bestFuzzy * 0.93, `fuzzy_reorder_${bestFuzzy.toFixed(2)}`);
+    }
 
-    // 6. OCR variant fuzzy match
+    // 7. OCR substitution variants (O/0, I/1, …) against DB variants
     if (extractedPlate) {
       for (const variant of ocrVariants(extractedPlate)) {
         if (variant.length < 4) continue;
-        const sim = similarity(variant, dbAlpha);
-        if (sim >= 0.8) {
-          consider(v, sim * 0.92, `ocr_fuzzy_${sim.toFixed(2)}`);
+        for (const dv of dbVariants) {
+          const sim = similarity(variant, dv);
+          if (sim >= 0.8) {
+            consider(v, sim * 0.9, `ocr_fuzzy_${sim.toFixed(2)}`);
+          }
+        }
+        // Also compare OCR variant core vs DB core
+        const vCore = plateCore(variant);
+        if (vCore.length >= 3 && dbCore.length >= 3) {
+          const sim = similarity(vCore, dbCore);
+          if (sim >= 0.8) {
+            consider(v, sim * 0.91, `ocr_core_${sim.toFixed(2)}`);
+          }
         }
       }
     }
@@ -205,12 +325,9 @@ function findBestVehicleMatch(
 
   if (candidates.length === 0) return null;
 
-  // Pick highest score
   candidates.sort((a, b) => b.score - a.score);
   const best = candidates[0];
-
-  // Only accept matches above threshold
-  if (best.score >= 0.75) return best;
+  if (best.score >= 0.72) return best;
   return null;
 }
 
@@ -712,7 +829,7 @@ Rules:
 - driver_status: set when the document clearly states the driver is available, assigned, or off (leave/off day).
 - fuel_level_pct is the tank percentage AFTER fill if printed; otherwise null.
 - price_per_litre is the unit price shown on the slip (R/L) if printed; otherwise null.
-- South African plates may appear as "WC 333-222", "333-222 WC", "CA 123-456", "GP 12 AB GP", etc. Extract the plate text as written.
+- South African plates may appear with the province code at the FRONT or the BACK, with or without spaces/hyphens, e.g. "WC 333-222", "333-222 WC", "CA 123-456", "123-456 CA", "GP 12 AB GP", "CA123456", "123456GP". Extract the plate text as written (do not reorder). Matching treats province front/back as the same vehicle.
 - If a field cannot be read confidently, use null.`;
 
     const imageDataUrl = `data:${mimeType};base64,${imageBase64}`;
