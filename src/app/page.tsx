@@ -700,11 +700,21 @@ export default function DashboardPage() {
       <header className={theme.header}>
         <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-500/15 border border-cyan-500/25 text-cyan-400 shadow-glow-cyan">
+            <div
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${
+                lightMode
+                  ? "bg-cyan-50 border-cyan-200 text-cyan-600"
+                  : "bg-cyan-500/15 border-cyan-500/25 text-cyan-400 shadow-glow-cyan"
+              }`}
+            >
               <LayoutDashboard className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-50 truncate">
+              <h1
+                className={`text-lg sm:text-xl font-bold tracking-tight truncate ${
+                  lightMode ? "text-slate-900" : "text-slate-50"
+                }`}
+              >
                 Fleet Manager
               </h1>
               <p className={`text-[11px] sm:text-xs tracking-wide ${theme.muted}`}>
@@ -714,29 +724,43 @@ export default function DashboardPage() {
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2">
             {usingDemo && (
-              <span className="hidden sm:inline-flex text-[10px] font-semibold uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-full">
+              <span
+                className={`hidden sm:inline-flex text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full border ${
+                  lightMode
+                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                    : "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                }`}
+              >
                 Demo
               </span>
             )}
             <button
               onClick={openSearchPopup}
-              className={`ops-btn ${showSearchPopup ? "ring-2 ring-cyan-500/70 border-cyan-500/50" : ""}`}
+              className={`ops-btn ${theme.btn} ${
+                showSearchPopup ? "ring-2 ring-cyan-500/70 border-cyan-500/50" : ""
+              }`}
               title="Search vehicles, plates, makes & drivers"
               aria-label="Search"
             >
-              <Search className="w-5 h-5 text-cyan-400" />
+              <Search
+                className={`w-5 h-5 ${lightMode ? "text-cyan-600" : "text-cyan-400"}`}
+              />
             </button>
             <button
               onClick={openSchedulesView}
-              className={`ops-btn ${showSchedulesView ? "ring-2 ring-violet-500/70 border-violet-500/50" : ""}`}
+              className={`ops-btn ${theme.btn} ${
+                showSchedulesView ? "ring-2 ring-violet-500/70 border-violet-500/50" : ""
+              }`}
               title="Schedules — vehicles, drivers & AI clash analysis"
               aria-label="Schedules"
             >
-              <CalendarClock className="w-5 h-5 text-violet-400" />
+              <CalendarClock
+                className={`w-5 h-5 ${lightMode ? "text-violet-600" : "text-violet-400"}`}
+              />
             </button>
             <button
               onClick={() => setLightMode(!lightMode)}
-              className="ops-btn"
+              className={`ops-btn ${theme.btn} ${lightMode ? "text-slate-700" : "text-slate-200"}`}
               title={lightMode ? "Dark mode" : "Light mode (outdoor)"}
               aria-label="Toggle theme"
             >
@@ -745,7 +769,9 @@ export default function DashboardPage() {
             <button
               onClick={loadData}
               disabled={loading}
-              className="ops-btn disabled:opacity-50"
+              className={`ops-btn ${theme.btn} disabled:opacity-50 ${
+                lightMode ? "text-slate-700" : "text-slate-200"
+              }`}
               title="Refresh"
               aria-label="Refresh data"
             >
@@ -1078,11 +1104,23 @@ export default function DashboardPage() {
               setShowAllRisk(true);
               scrollToSection("risk");
             }}
-            className={`ops-kpi ${theme.card} group`}
+            className={`ops-kpi ${theme.card} group ${
+              lightMode
+                ? "hover:border-cyan-400/60 hover:shadow-md"
+                : "hover:border-cyan-500/35 hover:shadow-[0_0_0_1px_rgba(34,211,238,0.15),0_8px_24px_-8px_rgba(0,0,0,0.5)]"
+            }`}
             title="Show all vehicles in risk ranking"
           >
-            <p className="ops-label">Fleet size</p>
-            <p className="ops-value mt-1 group-hover:text-cyan-300 transition-colors">
+            <p className={`ops-label ${lightMode ? "text-slate-500" : "text-slate-500"}`}>
+              Fleet size
+            </p>
+            <p
+              className={`ops-value mt-1 transition-colors tabular-nums ${
+                lightMode
+                  ? "text-slate-900 group-hover:text-cyan-700"
+                  : "text-slate-50 group-hover:text-cyan-300"
+              }`}
+            >
               {vehicles.length}
             </p>
             <p className={`text-[11px] mt-1 ${theme.cardMuted}`}>Active units</p>
@@ -1096,14 +1134,24 @@ export default function DashboardPage() {
                 scrollToSection("risk");
               }
             }}
-            className={`ops-kpi ${theme.card} group relative overflow-hidden`}
+            className={`ops-kpi ${theme.card} group relative overflow-hidden ${
+              lightMode
+                ? "hover:border-rose-300 hover:shadow-md"
+                : "hover:border-rose-500/40"
+            }`}
             title="View offline / down vehicles"
           >
             {downVehicles.length > 0 && (
               <span className="absolute top-3 right-3 h-2 w-2 rounded-full bg-rose-500 animate-pulse-soft shadow-glow-rose" />
             )}
-            <p className="ops-label">Down / offline</p>
-            <p className="ops-value mt-1 text-rose-400 tabular-nums">
+            <p className={`ops-label ${lightMode ? "text-slate-500" : "text-slate-500"}`}>
+              Down / offline
+            </p>
+            <p
+              className={`ops-value mt-1 tabular-nums ${
+                lightMode ? "text-rose-600" : "text-rose-400"
+              }`}
+            >
               {downVehicles.length}
             </p>
             <p className={`text-[11px] mt-1 ${theme.cardMuted}`}>Needs shuffle</p>
@@ -1111,11 +1159,21 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={() => setShowRoadworthyPopup(true)}
-            className={`ops-kpi ${theme.card} group`}
+            className={`ops-kpi ${theme.card} group ${
+              lightMode
+                ? "hover:border-amber-300 hover:shadow-md"
+                : "hover:border-amber-500/40"
+            }`}
             title="Vehicles with roadworthy expiring within 20 days"
           >
-            <p className="ops-label">Roadworthy ≤20d</p>
-            <p className="ops-value mt-1 text-amber-400 tabular-nums">
+            <p className={`ops-label ${lightMode ? "text-slate-500" : "text-slate-500"}`}>
+              Roadworthy ≤20d
+            </p>
+            <p
+              className={`ops-value mt-1 tabular-nums ${
+                lightMode ? "text-amber-600" : "text-amber-400"
+              }`}
+            >
               {certAlerts.length}
             </p>
             <p className={`text-[11px] mt-1 ${theme.cardMuted}`}>Certificate alerts</p>
@@ -1137,13 +1195,29 @@ export default function DashboardPage() {
               setFuelReserveMsg(null);
               setShowFuelReserveModal(true);
             }}
-            className={`ops-kpi ${theme.card} group`}
+            className={`ops-kpi ${theme.card} group ${
+              lightMode
+                ? "hover:border-cyan-400/60 hover:shadow-md"
+                : "hover:border-cyan-500/35"
+            }`}
             title="Update bulk fuel reserve or budget"
           >
-            <p className="ops-label">Fuel reserve</p>
-            <p className="ops-value mt-1 text-cyan-400 tabular-nums">
+            <p className={`ops-label ${lightMode ? "text-slate-500" : "text-slate-500"}`}>
+              Fuel reserve
+            </p>
+            <p
+              className={`ops-value mt-1 tabular-nums ${
+                lightMode ? "text-cyan-700" : "text-cyan-400"
+              }`}
+            >
               {Number(fuelReserve || 0).toLocaleString()}
-              <span className="text-base font-semibold text-cyan-500/80 ml-1">L</span>
+              <span
+                className={`text-base font-semibold ml-1 ${
+                  lightMode ? "text-cyan-600/80" : "text-cyan-500/80"
+                }`}
+              >
+                L
+              </span>
             </p>
             {fuelReserveMeta.mode === "budget" &&
               (fuelReserveMeta.remaining_budget_zar != null ||
@@ -1180,7 +1254,11 @@ export default function DashboardPage() {
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className="ops-section-title">
+                <h2
+                  className={`ops-section-title ${
+                    lightMode ? "text-slate-900" : "text-slate-100"
+                  }`}
+                >
                   Company COIDA certificate
                 </h2>
                 <p className={`text-sm mt-1.5 ${lightMode ? "text-slate-600" : "text-slate-400"}`}>
@@ -1249,8 +1327,18 @@ export default function DashboardPage() {
         {/* Risk Ranking */}
         <section id="risk" className="scroll-mt-28">
           <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
-            <h2 className="ops-section-title">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400">
+            <h2
+              className={`ops-section-title ${
+                lightMode ? "text-slate-900" : "text-slate-100"
+              }`}
+            >
+              <span
+                className={`flex h-8 w-8 items-center justify-center rounded-lg ${
+                  lightMode
+                    ? "bg-amber-100 text-amber-600"
+                    : "bg-amber-500/15 text-amber-400"
+                }`}
+              >
                 <AlertTriangle className="w-4 h-4" />
               </span>
               Risk ranking
@@ -1315,7 +1403,13 @@ export default function DashboardPage() {
                 lightMode ? "text-rose-800" : "text-rose-200"
               }`}
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-500/20 text-rose-400">
+              <span
+                className={`flex h-8 w-8 items-center justify-center rounded-lg ${
+                  lightMode
+                    ? "bg-rose-100 text-rose-600"
+                    : "bg-rose-500/20 text-rose-400"
+                }`}
+              >
                 <CalendarClock className="w-4 h-4" />
               </span>
               Vehicles offline — schedule shuffle

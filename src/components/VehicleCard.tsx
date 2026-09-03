@@ -102,10 +102,22 @@ export default function VehicleCard({
       <div className="flex justify-between items-start gap-3 mb-3.5">
         <div className="min-w-0">
           <h4 className="font-semibold text-[15px] leading-tight flex items-center gap-2">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-400">
+            <span
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+                lightMode
+                  ? "bg-cyan-50 text-cyan-600"
+                  : "bg-cyan-500/10 text-cyan-400"
+              }`}
+            >
               <Car className="w-3.5 h-3.5" />
             </span>
-            <span className="font-mono tracking-wide truncate">{vehicle.plate}</span>
+            <span
+              className={`font-mono tracking-wide truncate ${
+                lightMode ? "text-slate-900" : "text-slate-100"
+              }`}
+            >
+              {vehicle.plate}
+            </span>
           </h4>
           <p className={`text-xs mt-1 truncate ${muted}`}>
             {vehicle.vehicle_id} · {vehicle.make} {vehicle.model} ({vehicle.year})

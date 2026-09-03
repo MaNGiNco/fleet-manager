@@ -34,37 +34,30 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ——— Design system utilities ——— */
+/* ——— Design system utilities (colour-agnostic; theme applied in components) ——— */
 @layer components {
   .ops-card {
-    @apply rounded-2xl border bg-[var(--surface)] border-[var(--border)] shadow-ops-sm;
+    @apply rounded-2xl border shadow-ops-sm;
   }
 
   .ops-card-elevated {
-    @apply rounded-2xl border bg-[var(--elevated)] border-[var(--border)] shadow-ops;
+    @apply rounded-2xl border shadow-ops;
   }
 
   .ops-kpi {
     @apply rounded-2xl border p-4 text-left transition-all duration-200;
-    background: linear-gradient(180deg, rgba(18, 26, 43, 0.9) 0%, rgba(13, 19, 32, 0.95) 100%);
-    border-color: var(--border);
-  }
-
-  .ops-kpi:hover {
-    border-color: rgba(34, 211, 238, 0.35);
-    box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.15), 0 8px 24px -8px rgba(0, 0, 0, 0.5);
   }
 
   .ops-label {
-    @apply text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500;
+    @apply text-[10px] font-semibold uppercase tracking-[0.08em];
   }
 
   .ops-value {
-    @apply text-2xl font-bold tracking-tight text-slate-50 tabular-nums;
+    @apply text-2xl font-bold tracking-tight tabular-nums;
   }
 
   .ops-plate {
-    @apply font-mono font-semibold tracking-wide text-cyan-400;
+    @apply font-mono font-semibold tracking-wide;
   }
 
   .ops-status {
@@ -72,14 +65,13 @@ body {
   }
 
   .ops-progress-track {
-    @apply h-1.5 rounded-full overflow-hidden bg-slate-800/80;
+    @apply h-1.5 rounded-full overflow-hidden;
   }
 
   .ops-btn {
     @apply min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl
-           bg-slate-800/80 hover:bg-slate-700/90 border border-slate-700/80
-           text-slate-200 transition-colors duration-150
-           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#070B14];
+           transition-colors duration-150
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/60;
   }
 
   .ops-btn-primary {
@@ -87,15 +79,15 @@ body {
            bg-cyan-600 hover:bg-cyan-500 text-white font-medium
            shadow-[0_0_20px_-4px_rgba(34,211,238,0.4)]
            transition-all duration-150
-           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#070B14];
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400;
   }
 
   .ops-section-title {
-    @apply text-base sm:text-lg font-semibold tracking-tight text-slate-100 flex items-center gap-2.5;
+    @apply text-base sm:text-lg font-semibold tracking-tight flex items-center gap-2.5;
   }
 
   .ops-divider {
-    @apply border-t border-[var(--border)];
+    @apply border-t;
   }
 }
 
